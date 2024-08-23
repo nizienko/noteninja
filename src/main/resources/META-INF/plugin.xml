@@ -1,0 +1,75 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
+    <id>com.github.nizienko.notes</id>
+
+    <!-- Public plugin name should be written in Title Case.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
+    <name>NoteNinja</name>
+
+    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
+    <vendor email="nizienko@outlook.com" url="https://www.gitub.com/nizienko">defeug</vendor>
+
+    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
+         Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
+    <description><![CDATA[
+    Perfect for jotting down snippets of code, personal reminders, or essential notes while you develop.
+  ]]></description>
+
+    <!-- Product and plugin compatibility requirements.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.intellij.plugins.markdown</depends>
+
+    <!-- Extension points defined by the plugin.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType
+                name="Notes"
+                implementationClass="notes.file.NotesFileType"
+                fieldName="INSTANCE"
+                language="Markdown"
+                extensions="notes"/>
+        <notificationGroup id="notes"
+                           displayType="BALLOON"/>
+        <toolWindow id="Notes" secondary="true" icon="AllIcons.Actions.Edit" anchor="right"
+                    factoryClass="notes.toolWindow.NotesToolwindow"/>
+        <psi.declarationProvider
+                implementation="notes.symbols.LinkPsiSymbolDeclarationProvider"/>
+        <lang.foldingBuilder
+                language="Markdown"
+                implementationClass="notes.folding.LinksFoldingBuilder"
+
+        />
+        <psi.referenceContributor language="Markdown" implementation="notes.link.BookmarkReferenceContributor"/>
+    </extensions>
+    <actions>
+        <group id="NotesActionGroup" text="Notes Actions" popup="false" icon="AllIcons.Actions.Edit"/>
+        <action id="notes.action.SaveReferenceAction"
+                class="notes.action.SaveReferenceAction"
+                text="Save Reference to Notes" icon="AllIcons.Actions.Edit" description="Save reference to notes">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action id="notes.action.SaveSelectionAction"
+                class="notes.action.SaveSelectionAction"
+                text="Save Selection to Notes" icon="AllIcons.Actions.Edit" description="Save selection to notes">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action id="notes.action.FoldLinksAction"
+                class="notes.action.FoldLinksAction"
+                text="Fold Links" icon="AllIcons.Actions.Collapseall" description="Fold links">
+            <add-to-group group-id="NotesActionGroup" anchor="first"/>
+        </action>
+        <action id="notes.action.ShowHeadersAction"
+                class="notes.action.ShowHeadersAction"
+                text="Scroll to Topic" icon="AllIcons.Actions.ListFiles" description="Scroll to topic">
+            <add-to-group group-id="NotesActionGroup" anchor="last"/>
+        </action>
+        <action id="notes.action.CloseFileAction"
+                class="notes.action.CloseFileAction"
+                text="Close Note" icon="AllIcons.Actions.CloseDarkGrey" description="Close Note">
+            <add-to-group group-id="NotesActionGroup" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>
