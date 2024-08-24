@@ -8,7 +8,6 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import notes.file.NotesFileType
 import notes.linkRegex
-import org.intellij.plugins.markdown.lang.psi.impl.MarkdownLink
 
 class LinksFoldingBuilder : FoldingBuilderEx() {
     companion object {
@@ -26,7 +25,7 @@ class LinksFoldingBuilder : FoldingBuilderEx() {
 
     private fun addDescriptors(node: ASTNode, descriptors: MutableList<FoldingDescriptor>) {
         val element = node.psi
-        if (element is MarkdownLink && linkRegex.matches(element.linkText?.text ?: "")) {
+        if (linkRegex.matches(element.text ?: "")) {
             val showNameLength = element.text.substringBefore(":").substringBefore(".").length
             descriptors.add(FoldingDescriptor(element, element.textRange.let { TextRange.create(it.startOffset + showNameLength, it.endOffset) }))
             return

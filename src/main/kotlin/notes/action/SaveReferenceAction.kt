@@ -1,17 +1,15 @@
 package notes.action
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.psi.PsiDocumentManager
 import kotlinx.coroutines.launch
 import notes.NotesService
-import notes.linkRegex
+import notes.linkTextRegex
 
 class SaveReferenceAction : DumbAwareAction() {
     override fun actionPerformed(e: AnActionEvent) {
@@ -49,7 +47,7 @@ fun createReference(editor: Editor): String {
     val name = element?.text ?: defaultName
     val path = editor.virtualFile.path
     val linkName = createLinkName(name, caret.offset)
-    if (linkRegex.matches(linkName)) return createLink(linkName, path)
+    if (linkTextRegex.matches(linkName)) return createLink(linkName, path)
     return createLink(createLinkName(defaultName, caret.offset), path)
 }
 private fun createLinkName(name: String, offset: Int): String = "[$name:${offset}]"

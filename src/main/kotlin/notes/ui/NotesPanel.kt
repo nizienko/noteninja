@@ -3,6 +3,7 @@ package notes.ui
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.readAndWriteAction
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.components.service
@@ -11,8 +12,8 @@ import com.intellij.openapi.observable.util.bindVisible
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiElement
-import com.intellij.refactoring.suggested.endOffset
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.psi.util.endOffset
+import com.intellij.psi.util.startOffset
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.components.BorderLayoutPanel
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +45,6 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
         }
     }
 
-
     suspend fun createUI() {
         val document = service.document ?: return
         withContext(Dispatchers.EDT) {
@@ -74,7 +74,6 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
             addToCenter(panel)
             revalidate()
             repaint()
-            editorPanel.requestFocus()
         }
     }
 
@@ -87,11 +86,13 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
 
     suspend fun insertToCaret(text: String) {
         val offset = readAction { editor.caretModel.primaryCaret.offset }
-        writeAction {
-            CommandProcessor.getInstance().executeCommand(project, {
-                editor.document.insertString(offset, text)
-            }, "Insert", null)
-            editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+        readAndWriteAction {
+            writeAction {
+                CommandProcessor.getInstance().executeCommand(project, {
+                    editor.document.insertString(offset, text)
+                }, "Insert", null)
+                editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+            }
         }
         refoldLinks()
     }
@@ -109,31 +110,14 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
         val project = editor.project ?: return
         val foldingModel = editor.foldingModel
         project.service<NotesService>().scope.launch {
-            writeAction {
-                foldingModel.runBatchFoldingOperation {
-                    val foldRegions = linksFoldingRegions()
-                    for (foldRegion in foldRegions) {
-                        if (foldRegion.isExpanded) {
-                            foldRegion.isExpanded = false
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fun foldHeader(element: PsiElement) {
-        val project = editor.project ?: return
-        val foldingModel = editor.foldingModel
-        project.service<NotesService>().scope.launch {
-            writeAction {
-                foldingModel.runBatchFoldingOperation {
-                    val foldRegions = editor.foldingModel.allFoldRegions.filter {
-                        it.startOffset <= element.startOffset && it.endOffset >= element.endOffset
-                    }
-                    foldRegions.maxByOrNull { it.startOffset }?.let {
-                        if (it.isExpanded) {
-                            it.isExpanded = false
+            readAndWriteAction {
+                writeAction {
+                    foldingModel.runBatchFoldingOperation {
+                        val foldRegions = linksFoldingRegions()
+                        for (foldRegion in foldRegions) {
+                            if (foldRegion.isExpanded) {
+                                foldRegion.isExpanded = false
+                            }
                         }
                     }
                 }
@@ -142,12 +126,13 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
     }
 
     suspend fun scrollToElement(topic: Topic) {
-        writeAction {
-            editor.caretModel.moveToOffset(topic.offset)
-            editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+        readAndWriteAction {
+            writeAction {
+                editor.caretModel.moveToOffset(topic.offset)
+                editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+            }
         }
     }
-
 
     fun loadFileList() {
         fileList.reLoadFileList()

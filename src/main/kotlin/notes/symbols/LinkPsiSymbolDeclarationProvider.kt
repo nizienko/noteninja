@@ -9,33 +9,23 @@ import com.intellij.model.psi.PsiSymbolDeclarationProvider
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import org.intellij.plugins.markdown.lang.psi.impl.MarkdownLink
-import org.intellij.plugins.markdown.lang.psi.impl.MarkdownLinkText
+import notes.linkRegex
 
 
-private val regex = """\[([A-z.]*):(\d+)]""".toRegex()
-fun MarkdownLinkText.isFileLink(): Boolean {
-    if ((parent as? MarkdownLink)?.linkDestination?.text?.isEmpty() != false) return false
-    if (regex.matches(text).not()) return false
-    return true
+fun PsiElement.isFileLink(): Boolean {
+    return !linkRegex.matches(text).not()
 }
 
-class LinkPsiSymbolDeclarationProvider: PsiSymbolDeclarationProvider {
+class LinkPsiSymbolDeclarationProvider : PsiSymbolDeclarationProvider {
     override fun getDeclarations(element: PsiElement, offsetInElement: Int): Collection<PsiSymbolDeclaration> {
-        if (element is MarkdownLinkText && element.isFileLink()) {
+        if (element.isFileLink()) {
             return listOf(LinkPsiSymbolDeclaration(element))
         }
         return emptyList()
     }
 }
 
-fun createPointer(element: MarkdownLinkText): Pointer<LinkTextSymbol> {
-    return Pointer.fileRangePointer(element.containingFile, element.textRange) { file, range ->
-        LinkTextSymbol(file, range, element.text)
-    }
-}
-
-class LinkPsiSymbolDeclaration(private val element: MarkdownLinkText): PsiSymbolDeclaration {
+class LinkPsiSymbolDeclaration(private val element: PsiElement) : PsiSymbolDeclaration {
     override fun getDeclaringElement(): PsiElement {
         return element
     }
@@ -45,11 +35,13 @@ class LinkPsiSymbolDeclaration(private val element: MarkdownLinkText): PsiSymbol
     }
 
     override fun getSymbol(): Symbol {
-        return createPointer(element).dereference() ?: error("Failed to create symbol")
+        return Pointer.fileRangePointer(element.containingFile, element.textRange) { file, range ->
+            LinkTextSymbol(file, range, element.text)
+        }.dereference() ?: error("Failed to create symbol")
     }
 }
 
-data class LinkTextSymbol(val file: PsiFile, val range: TextRange, val text: String): Symbol {
+data class LinkTextSymbol(val file: PsiFile, val range: TextRange, val text: String) : Symbol {
     override fun createPointer(): Pointer<out Symbol?> {
         return Pointer.fileRangePointer(file, range) { file, range ->
             LinkTextSymbol(file, range, text)

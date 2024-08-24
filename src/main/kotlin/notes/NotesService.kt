@@ -2,7 +2,7 @@ package notes
 
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
-import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.application.readAndWriteAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Document
@@ -16,7 +16,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiTreeUtil
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.psi.util.startOffset
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +60,7 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
         get() = ToolWindowManager.getInstance(project).getToolWindow("Notes")
             ?: throw IllegalStateException("Can't find Notes toolwindow")
 
-    val defaultDir = Path(System.getProperty("user.home"))
+    private val defaultDir = Path(System.getProperty("user.home"))
         .normalize()
         .resolve(".notes") ?: throw IllegalStateException()
 
@@ -77,8 +77,10 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
         }
 
     suspend fun writeText(text: String) {
-        writeAction {
-            document?.setText(document?.text + "\n\n" + text)
+        readAndWriteAction {
+            writeAction {
+                document?.setText(document?.text + "\n\n" + text)
+            }
         }
     }
 
@@ -125,7 +127,6 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
     }
 
     fun foldLinks() = editorPanel?.refoldLinks()
-    fun foldHeader(element: PsiElement) = editorPanel?.foldHeader(element)
     fun hasUnfoldedLinks(): Boolean = editorPanel?.hasUnfoldedLinks() ?: false
 
     private suspend fun showEditor() = withContext(Dispatchers.EDT) {
@@ -165,4 +166,5 @@ data class Topic(val name: String, val offset: Int) {
     }
 }
 
-val linkRegex = """\[([A-z.]*):(\d+)]""".toRegex()
+val linkTextRegex = """\[([A-z.]*):(\d+)]""".toRegex()
+val linkRegex = Regex("""\[([A-z.]*):(\d+)]\(.*\)""")

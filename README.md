@@ -10,4 +10,3 @@ The IntelliJ IDEA Notes Plugin enhances your development experience by providing
 - icons
 - insert selection to caret
 - default demo note
-- reordering notes

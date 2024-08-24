@@ -2,7 +2,7 @@ package notes.symbols
 
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.application.readAndWriteAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
@@ -16,9 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import notes.NotesService
-import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeaderContent
-import org.intellij.plugins.markdown.lang.psi.impl.MarkdownLink
-import org.intellij.plugins.markdown.lang.psi.impl.MarkdownLinkText
+import notes.linkTextRegex
 
 class LinkEditorListener : EditorMouseListener {
 
@@ -28,12 +26,14 @@ class LinkEditorListener : EditorMouseListener {
         val project = editor.project ?: return
 
         if (isControlOrMetaDown(event)) {
-            if (element is MarkdownLinkText) {
+            if (linkTextRegex.matches(element.text) ) {
                 val (_, offset) = element.text.substringAfter("[").substringBefore("]").split(":")
                     .takeIf { it.size == 2 }
                     ?.let { it[0] to it[1] }
                     ?: return
-                val path = (element.parent as? MarkdownLink)?.linkDestination?.text ?: return
+                val parentText = element.parent.text
+                if (Regex("\\[.*]\\(.*\\)").matches(parentText).not()) return
+                val path = parentText.substringAfterLast("(").substringBeforeLast(")")
                 project.service<NotesService>().scope.launch {
                     val file = LocalFileSystem.getInstance().findFileByPath(path)
                     if (file == null) {
@@ -58,8 +58,10 @@ class LinkEditorListener : EditorMouseListener {
     private fun showFileNotFoundError(editor: Editor) {
         val project = editor.project ?: return
         project.service<NotesService>().scope.launch {
-            writeAction {
-                HintManager.getInstance().showErrorHint(editor, "Can't find file")
+            readAndWriteAction {
+                writeAction {
+                    HintManager.getInstance().showErrorHint(editor, "Can't find file")
+                }
             }
         }
     }
