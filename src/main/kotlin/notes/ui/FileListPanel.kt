@@ -11,11 +11,7 @@ import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.PopupChooserBuilder
-import com.intellij.openapi.ui.popup.PopupStep
-import com.intellij.openapi.ui.popup.util.BaseListPopupStep
-import com.intellij.ui.JBColor
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
@@ -81,11 +77,11 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
             return@setCellRenderer BorderLayoutPanel().apply {
                 addToLeft(ColorGroupComponent(colorWidth, value))
                 border = Borders.compound(
-                    Borders.empty(1, 0),
+                    Borders.empty(1, 2),
                 )
                 addToCenter(BorderLayoutPanel().apply {
                     border = Borders.compound(
-                        Borders.empty(5, 0),
+                        Borders.empty(5, 8),
                     )
                     background = if (index == hoveredIndex) {
                         UIUtil.getListSelectionBackground(false)
