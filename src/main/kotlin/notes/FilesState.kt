@@ -2,8 +2,10 @@ package notes
 
 import com.google.gson.Gson
 import com.intellij.openapi.components.*
+import com.intellij.ui.JBColor
 import com.intellij.util.xmlb.Converter
 import com.intellij.util.xmlb.annotations.OptionTag
+import java.awt.Color
 
 
 @Service
@@ -15,6 +17,11 @@ class FilesState : SimplePersistentStateComponent<Files>(Files()) {
 
     fun removeFile(note: NoteCard) {
         state.files.remove(note)
+    }
+
+    fun setFileList(list: List<NoteCard>) {
+        state.files.clear()
+        state.files.addAll(list)
     }
 
     fun setLastFile(note: NoteCard) {
@@ -32,7 +39,7 @@ class Files : BaseState() {
 }
 
 data class NoteCard(
-    var name: String, val path: String
+    var name: String, val path: String, var color: String = "#487de7",
 )
 
 private val gson = Gson()

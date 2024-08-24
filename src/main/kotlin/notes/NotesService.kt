@@ -42,6 +42,9 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
     private val editorPanel: NotesPanel?
         get() = UIUtil.findComponentOfType(toolWindow.component, NotesPanel::class.java)
 
+    val note: NoteCard
+        get() = currentNote
+
     suspend fun loadDefault() {
         if (filesService.list().isEmpty()) {
             val note = NoteCard(defaultFile.name, defaultFile.absolutePath)

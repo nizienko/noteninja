@@ -24,6 +24,7 @@ import notes.file.NotesFileType
 import notes.folding.LinksFoldingBuilder.Companion.LINK_PLACEHOLDER
 import notes.symbols.LinkEditorListener
 import java.awt.CardLayout
+import java.awt.Color
 import javax.swing.JPanel
 import kotlin.math.max
 
@@ -37,7 +38,6 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
     private val panel = JPanel(CardLayout())
 
     init {
-        border = JBUI.Borders.empty()
         service.scope.launch {
             service.loadDefault()
             createUI()
@@ -62,6 +62,7 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
             val editorPanel = DisposableEditorPanel(editor).apply {
                 Disposer.register(disposable, this)
                 bindVisible(service.showEditor)
+                border = JBUI.Borders.customLine(Color.decode(service.note.color), 0, 1, 0, 0)
             }
             panel.removeAll()
             panel.add(editorPanel)
@@ -69,6 +70,7 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
             addToCenter(panel)
             revalidate()
             repaint()
+            editorPanel.requestFocus()
         }
     }
 
