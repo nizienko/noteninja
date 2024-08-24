@@ -20,21 +20,13 @@ import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
-import com.intellij.ui.components.JBPanel
-import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
-import com.intellij.ui.popup.list.ListPopupImpl
-import com.intellij.ui.util.width
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
 import kotlinx.coroutines.launch
-import notes.FilesState
-import notes.NoteCard
-import notes.NotesService
+import notes.*
 import notes.file.NotesFileType
-import notes.toHex
 import java.awt.Color
-import java.awt.Rectangle
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseEvent.BUTTON1
@@ -42,7 +34,6 @@ import java.awt.event.MouseMotionAdapter
 import javax.swing.DefaultListModel
 import javax.swing.JOptionPane
 import javax.swing.JPanel
-import javax.swing.ListModel
 
 
 class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
@@ -50,7 +41,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
     private val fileList = JBList(model)
     private val notesService = project.service<NotesService>()
     private val filesState = service<FilesState>()
-    private val colorWidth = 7
+    private val colorWidth = 8
 
     init {
         fileList.addMouseListener(object : MouseAdapter() {
@@ -216,7 +207,12 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
         }
         val popup = PopupChooserBuilder(list)
             .setItemChosenCallback(Runnable {
-                note.color = list.selectedValue.toHex()
+                val chosenColor = list.selectedValue.toHex()
+                if (note.color == chosenColor) {
+                    note.color = null
+                } else {
+                    note.color = list.selectedValue.toHex()
+                }
             }).createPopup()
         popup.show(RelativePoint(event))
 
@@ -224,13 +220,13 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
 }
 
 private val colors = listOf(
-    Color.decode("#e81416"),
-    Color.decode("#ffa500"),
-    Color.decode("#faeb36"),
-    Color.decode("#79c314"),
-    Color.decode("#487de7"),
-    Color.decode("#4b369d"),
-    Color.decode("#70369d"),
+    parseColor("#e81416"),
+    parseColor("#ffa500"),
+    parseColor("#faeb36"),
+    parseColor("#79c314"),
+    parseColor("#487de7"),
+    parseColor("#4b369d"),
+    parseColor("#70369d"),
 )
 
 class ColorGroupComponent(private val colorWidth: Int, private val note: NoteCard) : JPanel(true) {
@@ -243,7 +239,9 @@ class ColorGroupComponent(private val colorWidth: Int, private val note: NoteCar
 
     override fun paintComponent(g: java.awt.Graphics) {
         super.paintComponent(g)
-        g.color = Color.decode(note.color)
-        g.fillRect(0, 0, colorWidth, height)
+        note.color?.let {
+            g.color = parseColor(it)
+            g.fillRect(0, 0, colorWidth, height)
+        }
     }
 }

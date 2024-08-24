@@ -39,7 +39,7 @@ class Files : BaseState() {
 }
 
 data class NoteCard(
-    var name: String, val path: String, var color: String = "#487de7",
+    var name: String, val path: String, var color: String? = null,
 )
 
 private val gson = Gson()
