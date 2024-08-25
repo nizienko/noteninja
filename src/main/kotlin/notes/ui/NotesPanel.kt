@@ -64,7 +64,7 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
                 bindVisible(service.showEditor)
                 service.note.color?.let { color ->
                     border = JBUI.Borders.customLine(
-                        parseColor(color), 3, 1, 0, 0
+                        parseColor(color), 0, 1, 0, 0
                     )
                 }
             }
