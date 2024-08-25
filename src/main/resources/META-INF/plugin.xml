@@ -61,6 +61,10 @@
                 text="Fold Links" icon="AllIcons.Actions.Collapseall" description="Fold links">
             <add-to-group group-id="NotesActionGroup" anchor="first"/>
         </action>
+        <action id="notes.action.SetColorAction"
+                class="notes.action.SetColorAction">
+            <add-to-group group-id="NotesActionGroup" anchor="first"/>
+        </action>
         <action id="notes.action.ShowHeadersAction"
                 class="notes.action.ShowHeadersAction"
                 text="Scroll to Topic" icon="AllIcons.Actions.ListFiles" description="Scroll to topic">

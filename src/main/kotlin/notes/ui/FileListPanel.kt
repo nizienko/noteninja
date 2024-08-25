@@ -8,9 +8,10 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooser
-import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.PopupChooserBuilder
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.awt.RelativePoint
@@ -23,11 +24,13 @@ import kotlinx.coroutines.launch
 import notes.*
 import notes.file.NotesFileType
 import java.awt.Color
+import java.awt.Point
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseEvent.BUTTON1
 import java.awt.event.MouseMotionAdapter
 import javax.swing.DefaultListModel
+import javax.swing.JComponent
 import javax.swing.JOptionPane
 import javax.swing.JPanel
 
@@ -40,6 +43,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
     private val colorWidth = 8
 
     init {
+        border = Borders.empty()
         fileList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 if (e.clickCount == 2 && e.button == BUTTON1) {
@@ -50,7 +54,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
 
                     val index = fileList.locationToIndex(e.getPoint())
                     fileList.model.getElementAt(index)?.let {
-                        showPopup(e, it)
+                        popupColor(it).show(RelativePoint(e))
                     }
                 }
             }
@@ -99,23 +103,45 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
             .addExtraAction(object : DumbAwareAction(AllIcons.General.OpenDisk) {
                 override fun actionPerformed(e: AnActionEvent) {
                     AllIcons.General.ArrowDown
-                    val file =
-                        FileChooser.chooseFile(
-                            FileChooserDescriptorFactory
-                                .createSingleFileDescriptor(NotesFileType.INSTANCE), project, null
+                    val descriptor = FileChooserDescriptor(true, false, false, false, false, true)
+                        .withFileFilter { it.fileType == NotesFileType.INSTANCE }
+
+                    val files =
+                        FileChooser.chooseFiles(
+                            descriptor, project, null
                         )
-                    if (file != null) {
+                    files.forEach { file ->
                         val path = file.path
                         val note = NoteCard(file.name, path)
                         model.addElement(note)
                         filesState.addFile(note)
-                        openFile(project, note)
+
                     }
                 }
 
                 override fun update(e: AnActionEvent) {
                     super.update(e)
                     e.presentation.text = "Open File"
+                }
+
+                override fun getActionUpdateThread(): ActionUpdateThread {
+                    return ActionUpdateThread.BGT
+                }
+            })
+            .addExtraAction(object : DumbAwareAction(AllIcons.Actions.Colors) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val note = fileList.selectedValue ?: return
+                    val component = e.inputEvent?.source as? JComponent ?: return
+                    val point = component.locationOnScreen.let {
+                        Point(it.x + component.width / 2, it.y + component.height / 2)
+                    }
+                    popupColor(note).show(RelativePoint(point))
+                }
+
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.text = "Set Color"
+                    e.presentation.isEnabledAndVisible = fileList.selectedValue != null
                 }
 
                 override fun getActionUpdateThread(): ActionUpdateThread {
@@ -151,6 +177,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
             .setMoveUpAction { moveFile(-1) }
             .createPanel()
 
+        decoratedList.border = Borders.empty()
         addToCenter(decoratedList)
     }
 
@@ -186,33 +213,31 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
             model.addElement(it)
         }
     }
+}
 
-    fun showPopup(event: MouseEvent, note: NoteCard) {
-        val model = DefaultListModel<Color>()
-        colors.forEach { model.addElement(it) }
-        val list = JBList(model).apply {
-            setCellRenderer { _, value, _, _, focus ->
-                return@setCellRenderer JPanel().apply {
-                    background = if (focus) {
-                        value
-                    } else {
-                        value.darker()
-                    }
+fun popupColor(note: NoteCard): JBPopup {
+    val model = DefaultListModel<Color>()
+    colors.forEach { model.addElement(it) }
+    val list = JBList(model).apply {
+        setCellRenderer { _, value, _, _, focus ->
+            return@setCellRenderer JPanel().apply {
+                background = if (focus) {
+                    value
+                } else {
+                    value.darker()
                 }
             }
         }
-        val popup = PopupChooserBuilder(list)
-            .setItemChosenCallback(Runnable {
-                val chosenColor = list.selectedValue.toHex()
-                if (note.color == chosenColor) {
-                    note.color = null
-                } else {
-                    note.color = list.selectedValue.toHex()
-                }
-            }).createPopup()
-        popup.show(RelativePoint(event))
-
     }
+    return PopupChooserBuilder(list)
+        .setItemChosenCallback(Runnable {
+            val chosenColor = list.selectedValue.toHex()
+            if (note.color == chosenColor) {
+                note.color = null
+            } else {
+                note.color = list.selectedValue.toHex()
+            }
+        }).createPopup()
 }
 
 private val colors = listOf(

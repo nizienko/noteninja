@@ -15,6 +15,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.util.endOffset
 import com.intellij.psi.util.startOffset
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.components.BorderLayoutPanel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -36,9 +37,12 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
     private val service = project.service<NotesService>()
     private val fileList = ChooseFilePanel(project)
         .bindVisible(service.showCustomPanel)
-    private val panel = JPanel(CardLayout())
+    private val panel = JPanel(CardLayout()).apply {
+        border = Borders.empty()
+    }
 
     init {
+        border = Borders.empty()
         service.scope.launch {
             service.loadDefault()
             createUI()
@@ -63,7 +67,7 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
                 Disposer.register(disposable, this)
                 bindVisible(service.showEditor)
                 service.note.color?.let { color ->
-                    border = JBUI.Borders.customLine(
+                    border = Borders.customLine(
                         parseColor(color), 0, 1, 0, 0
                     )
                 }
