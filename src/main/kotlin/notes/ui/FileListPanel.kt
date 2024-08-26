@@ -12,11 +12,13 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.PopupChooserBuilder
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
+import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
@@ -24,15 +26,11 @@ import kotlinx.coroutines.launch
 import notes.*
 import notes.file.NotesFileType
 import java.awt.Color
+import java.awt.Dimension
 import java.awt.Point
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
+import java.awt.event.*
 import java.awt.event.MouseEvent.BUTTON1
-import java.awt.event.MouseMotionAdapter
-import javax.swing.DefaultListModel
-import javax.swing.JComponent
-import javax.swing.JOptionPane
-import javax.swing.JPanel
+import javax.swing.*
 
 
 class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
@@ -149,21 +147,23 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
                 }
             })
             .setAddActionName("Create New Note")
-            .setAddAction { _ ->
-                try {
-                    val noteName = JOptionPane.showInputDialog("Enter Note name:")
-                    if (noteName != null && noteName.trim { it <= ' ' }.isNotEmpty()) {
-                        val note = notesService.createNewFile(noteName)
+            .setAddAction { a ->
+                val popup = newNotePopup {
+                    try {
+                        val note = notesService.createNewFile(it)
                         model.addElement(note)
                         filesState.addFile(note)
                         openFile(project, note)
+
+                    } catch (e: Throwable) {
+                        NotificationsManager.getNotificationsManager().showNotification(
+                            Notification("noteninja", "Can't create new file", NotificationType.ERROR), project
+                        )
                     }
-                } catch (e: Throwable) {
-                    e.printStackTrace()
-                    NotificationsManager.getNotificationsManager().showNotification(
-                        Notification("", "Can't create new file", NotificationType.ERROR), project
-                    )
                 }
+                val actionComponent = a.contextComponent ?: return@setAddAction
+                popup.show(RelativePoint(actionComponent, Point(0, 0)))
+
             }
             .setRemoveAction {
                 val selectedIndex: Int = fileList.selectedIndex
@@ -201,7 +201,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
             } catch (e: Throwable) {
                 e.printStackTrace()
                 NotificationsManager.getNotificationsManager().showNotification(
-                    Notification("", "Can't open file ${noteCard.path}", NotificationType.ERROR), project
+                    Notification("noteninja", "Can't open file ${noteCard.path}", NotificationType.ERROR), project
                 )
             }
         }
@@ -249,6 +249,28 @@ private val colors = listOf(
     parseColor("#4b369d"),
     parseColor("#70369d"),
 )
+
+fun newNotePopup(action: (String) -> Unit): JBPopup {
+    val textField = JBTextField()
+    val panel = BorderLayoutPanel()
+    panel.addToCenter(textField)
+    val popup = JBPopupFactory.getInstance()
+        .createComponentPopupBuilder(panel, textField)
+        .setRequestFocus(true)
+        .setMinSize(Dimension(200, 0))
+        .createPopup()
+
+    textField.addKeyListener(object : KeyAdapter() {
+        override fun keyTyped(e: KeyEvent?) {
+            if (e == null) return
+            if (e.extendedKeyCode == KeyEvent.VK_ENTER) {
+                popup.closeOk(null)
+                action(textField.text)
+            }
+        }
+    })
+    return popup
+}
 
 class ColorGroupComponent(private val colorWidth: Int, private val note: NoteCard) : JPanel(true) {
     init {

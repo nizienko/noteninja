@@ -31,7 +31,7 @@
                 fieldName="INSTANCE"
                 language="Markdown"
                 extensions="notes"/>
-        <notificationGroup id="notes"
+        <notificationGroup id="noteninja"
                            displayType="BALLOON"/>
         <toolWindow id="Notes" secondary="true" icon="AllIcons.Actions.Edit" anchor="right"
                     factoryClass="notes.toolWindow.NotesToolwindow"/>
