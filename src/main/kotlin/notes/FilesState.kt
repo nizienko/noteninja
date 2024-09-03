@@ -2,10 +2,9 @@ package notes
 
 import com.google.gson.Gson
 import com.intellij.openapi.components.*
-import com.intellij.ui.JBColor
 import com.intellij.util.xmlb.Converter
 import com.intellij.util.xmlb.annotations.OptionTag
-import java.awt.Color
+import java.io.File
 
 
 @Service
@@ -41,6 +40,8 @@ class Files : BaseState() {
 data class NoteCard(
     var name: String, val path: String, var color: String? = null,
 )
+
+fun NoteCard.exist(): Boolean = File(path).exists()
 
 private val gson = Gson()
 

@@ -46,12 +46,12 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
         get() = currentNote
 
     suspend fun loadDefault() {
-        if (filesService.list().isEmpty()) {
-            val note = NoteCard(defaultFile.name, defaultFile.absolutePath)
-            filesService.addFile(note)
-            filesService.state.lastFile = note
-        }
-        val note = filesService.state.lastFile ?: filesService.list().first()
+        val note = filesService.state.lastFile?.takeIf { it.exist() }
+            ?: filesService.list().firstOrNull { it.exist() }
+            ?: NoteCard(defaultFile.name, defaultFile.absolutePath).apply {
+                filesService.addFile(note)
+                filesService.state.lastFile = note
+            }
         loadFile(note)
         reloadCurrentDocument()
     }
