@@ -30,14 +30,14 @@ import kotlin.io.path.Path
 @Service(Service.Level.PROJECT)
 class NotesService(private val project: Project, val scope: CoroutineScope) {
     private val filesService = service<FilesState>()
-    private lateinit var notesFile: File
+    lateinit var notesFile: File
     private lateinit var virtualFile: VirtualFile
     private lateinit var psiFile: PsiFile
     private lateinit var currentNote: NoteCard
     var document: Document? = null
         private set
-    val showEditor = AtomicBooleanProperty(true)
-    val showCustomPanel = AtomicBooleanProperty(false)
+    val showEditor = AtomicBooleanProperty(false)
+    val showCustomPanel = AtomicBooleanProperty(true)
 
     private val editorPanel: NotesPanel?
         get() = UIUtil.findComponentOfType(toolWindow.component, NotesPanel::class.java)
@@ -132,12 +132,14 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
     private suspend fun showEditor() = withContext(Dispatchers.EDT) {
         showCustomPanel.getAndSet(false)
         showEditor.getAndSet(true)
+        editorPanel?.requestFocusOnEditor()
     }
 
     suspend fun showFileList() = withContext(Dispatchers.EDT) {
         showEditor.getAndSet(false)
         editorPanel?.loadFileList()
         showCustomPanel.getAndSet(true)
+        editorPanel?.fileList?.setFocus()
     }
 
     fun createNewFile(name: String): NoteCard {

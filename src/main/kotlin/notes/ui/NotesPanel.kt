@@ -4,17 +4,13 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.readAndWriteAction
-import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.*
+import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.observable.util.bindVisible
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.psi.PsiElement
-import com.intellij.psi.util.endOffset
-import com.intellij.psi.util.startOffset
-import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.components.BorderLayoutPanel
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +23,8 @@ import notes.folding.LinksFoldingBuilder.Companion.LINK_PLACEHOLDER
 import notes.parseColor
 import notes.symbols.LinkEditorListener
 import java.awt.CardLayout
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import javax.swing.JPanel
 import kotlin.math.max
 
@@ -35,7 +33,7 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
     private lateinit var editor: Editor
 
     private val service = project.service<NotesService>()
-    private val fileList = ChooseFilePanel(project)
+    val fileList = ChooseFilePanel(project)
         .bindVisible(service.showCustomPanel)
     private val panel = JPanel(CardLayout()).apply {
         border = Borders.empty()
@@ -72,6 +70,15 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
                     )
                 }
             }
+            editor.contentComponent.addKeyListener(object : KeyAdapter() {
+                override fun keyPressed(e: KeyEvent) {
+                    if (KeyEvent.VK_ESCAPE == e.keyCode) {
+                        service.scope.launch {
+                            service.showFileList()
+                        }
+                    }
+                }
+            })
             panel.removeAll()
             panel.add(editorPanel)
             panel.add(fileList)
@@ -127,6 +134,10 @@ class NotesPanel(private val project: Project, private val disposable: Disposabl
                 }
             }
         }
+    }
+
+    fun requestFocusOnEditor() {
+        editor.contentComponent.requestFocusInWindow()
     }
 
     suspend fun scrollToElement(topic: Topic) {

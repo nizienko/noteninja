@@ -38,7 +38,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
     private val fileList = JBList(model)
     private val notesService = project.service<NotesService>()
     private val filesState = service<FilesState>()
-    private val colorWidth = 8
+    private val colorWidth = 12
 
     init {
         border = Borders.empty()
@@ -67,6 +67,14 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
                     fileList.repaint()
                 }
                 fileList.toolTipText = fileList.model.getElementAt(index)?.path?.replace(userHome, "~")
+            }
+        })
+        fileList.addKeyListener(object : KeyAdapter(){
+            override fun keyPressed(e: KeyEvent) {
+                if (KeyEvent.VK_ENTER == e.keyCode) {
+                    val selectedFile = fileList.selectedValue
+                    openFile(project, selectedFile)
+                }
             }
         })
         fileList.addMouseListener(object : MouseAdapter() {
@@ -175,6 +183,10 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
             }
             .setMoveDownAction { moveFile(1) }
             .setMoveUpAction { moveFile(-1) }
+            .setEditAction {
+                val selectedFile = fileList.selectedValue
+                openFile(project, selectedFile)
+            }
             .createPanel()
 
         decoratedList.border = Borders.empty()
@@ -208,10 +220,18 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
     }
 
     fun reLoadFileList() {
+        val lastFile = fileList.selectedValue?.path //?: service<NotesService>().notesFile.path
         model.clear()
         filesState.list().forEach {
             model.addElement(it)
+            if (it.path == lastFile) {
+                fileList.setSelectedValue(it, true)
+            }
         }
+    }
+
+    fun setFocus() {
+        fileList.requestFocus()
     }
 }
 
