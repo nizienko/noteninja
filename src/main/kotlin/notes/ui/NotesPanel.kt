@@ -7,7 +7,6 @@ import com.intellij.openapi.application.readAndWriteAction
 import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.*
-import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.observable.util.bindVisible
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
