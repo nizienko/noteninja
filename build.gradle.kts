@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.github.nizienko"
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -15,7 +15,7 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        intellijIdeaCommunity("2024.2")
+        intellijIdeaCommunity("2024.3")
         instrumentationTools()
         bundledPlugin("org.intellij.plugins.markdown")
         pluginVerifier()

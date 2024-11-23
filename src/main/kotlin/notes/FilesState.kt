@@ -27,12 +27,12 @@ class FilesState : SimplePersistentStateComponent<Files>(Files()) {
         state.lastFile = note
     }
 
-    fun list(): List<NoteCard> = state.files
+    fun list(): Set<NoteCard> = state.files
 }
 
 class Files : BaseState() {
     @OptionTag(converter = NotesConverter::class)
-    var files: MutableList<NoteCard> = mutableListOf()
+    var files: MutableSet<NoteCard> = mutableSetOf()
     @OptionTag(converter = NoteCardConverter::class)
     var lastFile: NoteCard? = null
 }

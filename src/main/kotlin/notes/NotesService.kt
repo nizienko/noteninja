@@ -12,7 +12,6 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findDocument
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiTreeUtil
@@ -20,6 +19,7 @@ import com.intellij.psi.util.startOffset
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import notes.ui.NotesPanel
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeader
@@ -30,10 +30,11 @@ import kotlin.io.path.Path
 @Service(Service.Level.PROJECT)
 class NotesService(private val project: Project, val scope: CoroutineScope) {
     private val filesService = service<FilesState>()
-    lateinit var notesFile: File
+    private lateinit var notesFile: File
     private lateinit var virtualFile: VirtualFile
     private lateinit var psiFile: PsiFile
-    private lateinit var currentNote: NoteCard
+    private var currentNote: NoteCard? = null
+
     var document: Document? = null
         private set
     val showEditor = AtomicBooleanProperty(false)
@@ -43,17 +44,24 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
         get() = UIUtil.findComponentOfType(toolWindow.component, NotesPanel::class.java)
 
     val note: NoteCard
-        get() = currentNote
+        get() {
+            val note = currentNote
+            if (note != null) {
+                return note
+            }
+            return runBlocking { loadDefault() }
+        }
 
-    suspend fun loadDefault() {
+    suspend fun loadDefault(): NoteCard {
         val note = filesService.state.lastFile?.takeIf { it.exist() }
             ?: filesService.list().firstOrNull { it.exist() }
             ?: NoteCard(defaultFile.name, defaultFile.absolutePath).apply {
-                filesService.addFile(note)
-                filesService.state.lastFile = note
+                filesService.addFile(this)
+                filesService.state.lastFile = this
             }
         loadFile(note)
         reloadCurrentDocument()
+        return note
     }
 
     val toolWindow
@@ -99,7 +107,7 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
     suspend fun updateTitle() {
         val header = readAction { PsiTreeUtil.findChildOfType(psiFile, MarkdownHeader::class.java) }
         if (header != null) {
-            currentNote.name = readAction { header.text }.let {
+            note.name = readAction { header.text }.let {
                 it.trim().trimStart { it == '#' }.trim()
             }
         }
