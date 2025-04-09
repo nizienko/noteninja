@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.NotificationsManager
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.service
@@ -19,6 +20,7 @@ import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBTextField
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
@@ -33,12 +35,14 @@ import java.awt.event.MouseEvent.BUTTON1
 import javax.swing.*
 
 
-class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
+class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
+    private val service = project.service<NotesService>()
     private val model: DefaultListModel<NoteCard> = DefaultListModel()
     private val fileList = JBList(model)
     private val notesService = project.service<NotesService>()
     private val filesState = service<FilesState>()
-    private val colorWidth = 12
+    private val colorWidth: Int
+        get() = JBUI.scale(12)
 
     init {
         border = Borders.empty()
@@ -193,6 +197,15 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
         addToCenter(decoratedList)
     }
 
+    private val stateJob = service.scope.launch {
+        service.state.collect {
+            if (it == NinjaState.FILES) {
+                reLoadFileList()
+                setFocus()
+            }
+        }
+    }
+
     private fun moveFile(n: Int) {
         val selectedIndex: Int = fileList.selectedIndex
         val selectedValue = fileList.selectedValue
@@ -208,8 +221,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
     private fun openFile(project: Project, noteCard: NoteCard) {
         notesService.scope.launch {
             try {
-                notesService.loadFile(noteCard)
-                notesService.reloadCurrentDocument()
+                notesService.openFile(noteCard)
             } catch (e: Throwable) {
                 e.printStackTrace()
                 NotificationsManager.getNotificationsManager().showNotification(
@@ -219,7 +231,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
         }
     }
 
-    fun reLoadFileList() {
+    private fun reLoadFileList() {
         val lastFile = fileList.selectedValue?.path //?: service<NotesService>().notesFile.path
         model.clear()
         filesState.list().forEach {
@@ -230,8 +242,12 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel() {
         }
     }
 
-    fun setFocus() {
+    private fun setFocus() {
         fileList.requestFocus()
+    }
+
+    override fun dispose() {
+        stateJob.cancel()
     }
 }
 

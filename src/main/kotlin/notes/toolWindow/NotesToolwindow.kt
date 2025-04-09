@@ -7,7 +7,7 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.components.BorderLayoutPanel
-import notes.ui.NotesPanel
+import notes.ui.MainPanel
 
 class NotesToolwindow : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -23,6 +23,6 @@ class NotesToolwindow : ToolWindowFactory, DumbAware {
             "notes.action.CloseFileAction",
         ).mapNotNull { ActionManager.getInstance().getAction(it) }
         toolWindow.setTitleActions(actions)
-        return NotesPanel(project, toolWindow.disposable)
+        return MainPanel(project, toolWindow.disposable)
     }
 }

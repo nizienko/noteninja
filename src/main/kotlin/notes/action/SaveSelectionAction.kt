@@ -20,9 +20,9 @@ class SaveSelectionAction : DumbAwareAction() {
         val service = project.service<NotesService>()
         service.scope.launch {
             service.writeText(text)
+            service.scrollToDown()
         }
         service.toolWindow.activate(null)
-        service.scrollToDown()
     }
 
     override fun update(e: AnActionEvent) {

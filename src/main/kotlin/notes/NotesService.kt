@@ -1,67 +1,63 @@
 package notes
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.readAndWriteAction
+import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.editor.Document
-import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.VfsUtil
-import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.findDocument
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.startOffset
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import notes.ui.NotesPanel
+import notes.ui.MainPanel
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeader
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeaderContent
 import java.io.File
 import kotlin.io.path.Path
 
 @Service(Service.Level.PROJECT)
-class NotesService(private val project: Project, val scope: CoroutineScope) {
+class NotesService(private val project: Project, val scope: CoroutineScope) : Disposable {
     private val filesService = service<FilesState>()
-    private lateinit var notesFile: File
-    private lateinit var virtualFile: VirtualFile
-    private lateinit var psiFile: PsiFile
-    private var currentNote: NoteCard? = null
+    private val _currentNoteCard = MutableStateFlow<LoadedNoteCard?>(null)
+    val currentNoteCard = _currentNoteCard.asStateFlow()
+    val state = MutableStateFlow(NinjaState.LOADING)
+    private val _noteActions = MutableSharedFlow<NoteAction>()
+    val notesActions = _noteActions.asSharedFlow()
 
-    var document: Document? = null
-        private set
-    val showEditor = AtomicBooleanProperty(false)
-    val showCustomPanel = AtomicBooleanProperty(true)
-
-    private val editorPanel: NotesPanel?
-        get() = UIUtil.findComponentOfType(toolWindow.component, NotesPanel::class.java)
-
-    val note: NoteCard
-        get() {
-            val note = currentNote
-            if (note != null) {
-                return note
-            }
-            return runBlocking { loadDefault() }
+    private val currentNoteCardJob = scope.launch {
+        currentNoteCard.collect { note ->
+            if (note == null) return@collect
+            updateTitle(note)
+            filesService.setLastFile(note.noteCard)
         }
+    }
+    private val stateJob = scope.launch {
+        state.collect { newState -> updateTitle() }
+    }
 
-    suspend fun loadDefault(): NoteCard {
+    @Deprecated("")
+    private val editorPanel: MainPanel?
+        get() = UIUtil.findComponentOfType(toolWindow.component, MainPanel::class.java)
+
+    suspend fun default() {
         val note = filesService.state.lastFile?.takeIf { it.exist() }
             ?: filesService.list().firstOrNull { it.exist() }
             ?: NoteCard(defaultFile.name, defaultFile.absolutePath).apply {
                 filesService.addFile(this)
                 filesService.state.lastFile = this
             }
-        loadFile(note)
-        reloadCurrentDocument()
-        return note
+        openFile(note)
     }
 
     val toolWindow
@@ -85,69 +81,66 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
         }
 
     suspend fun writeText(text: String) {
+        val document = currentNoteCard.value?.getDocument()
         readAndWriteAction {
             writeAction {
-                document?.setText(document?.text + "\n\n" + text)
+                CommandProcessor.getInstance().executeCommand(project, {
+                    document?.setText(document.text + "\n\n" + text)
+                }, "Insert", null)
             }
         }
     }
 
-    suspend fun loadFile(note: NoteCard) {
-        notesFile = File(note.path)
-        virtualFile = VfsUtil.findFileByIoFile(notesFile, true) ?: throw IllegalStateException("Can't find notes file")
-        psiFile = readAction { PsiManager.getInstance(project).findFile(virtualFile) }
-            ?: throw IllegalStateException("Can't find notes psi file")
-        currentNote = note
-        updateTitle()
-        document = readAction { virtualFile.findDocument() ?: throw IllegalStateException("Can't find document") }
-
-        filesService.setLastFile(note)
+    suspend fun openFile(note: NoteCard) {
+        _currentNoteCard.emit(LoadedNoteCard(note))
+        state.emit(NinjaState.OPENED_NOTE)
     }
 
-    suspend fun updateTitle() {
+    suspend fun updateTitle(note: LoadedNoteCard? = null) {
+        val noteCardToUpdate: LoadedNoteCard = note ?: currentNoteCard.value ?: return
+        val psiFile = noteCardToUpdate.getPsiFile(project)
         val header = readAction { PsiTreeUtil.findChildOfType(psiFile, MarkdownHeader::class.java) }
         if (header != null) {
-            note.name = readAction { header.text }.let {
+            noteCardToUpdate.noteCard.name = readAction { header.text }.let {
                 it.trim().trimStart { it == '#' }.trim()
             }
         }
     }
 
-    suspend fun reloadCurrentDocument() {
-        editorPanel?.createUI()
-        showEditor()
+    suspend fun topics(): List<Topic> {
+        val psiFile = currentNoteCard.value?.getPsiFile(project) ?: return emptyList()
+        return readAction { PsiTreeUtil.findChildrenOfType(psiFile, MarkdownHeaderContent::class.java) }
+            .map { Topic.fromMarkdownHeader(it) }
     }
 
-    val topics: List<Topic>
-        get() = PsiTreeUtil.findChildrenOfType(psiFile, MarkdownHeaderContent::class.java)
-            .map { Topic.fromMarkdownHeader(it) }
-
-    fun scrollToDown() {
-        editorPanel?.scrollToDown()
+    suspend fun scrollToDown() {
+        if (state.value != NinjaState.OPENED_NOTE) {
+            state.emit(NinjaState.OPENED_NOTE)
+        }
+        _noteActions.emit(NoteAction.ScrollDown())
     }
 
     suspend fun scrollToElement(topic: Topic) {
-        editorPanel?.scrollToElement(topic)
+        if (state.value != NinjaState.OPENED_NOTE) {
+            state.emit(NinjaState.OPENED_NOTE)
+        }
+        _noteActions.emit(NoteAction.ScrollToElement(topic))
     }
 
     suspend fun insertTextToCaret(text: String) {
-        editorPanel?.insertToCaret(text)
+        if (state.value != NinjaState.OPENED_NOTE) {
+            state.emit(NinjaState.OPENED_NOTE)
+        }
+        _noteActions.emit(NoteAction.InsertText(text))
     }
 
-    fun foldLinks() = editorPanel?.refoldLinks()
-    fun hasUnfoldedLinks(): Boolean = editorPanel?.hasUnfoldedLinks() ?: false
-
-    private suspend fun showEditor() = withContext(Dispatchers.EDT) {
-        showCustomPanel.getAndSet(false)
-        showEditor.getAndSet(true)
-        editorPanel?.requestFocusOnEditor()
+    suspend fun foldLinks() {
+        _noteActions.emit(NoteAction.RefoldLinks())
     }
 
-    suspend fun showFileList() = withContext(Dispatchers.EDT) {
-        showEditor.getAndSet(false)
-        editorPanel?.loadFileList()
-        showCustomPanel.getAndSet(true)
-        editorPanel?.fileList?.setFocus()
+
+    suspend fun goToNoteList() {
+        state.emit(NinjaState.FILES)
     }
 
     fun createNewFile(name: String): NoteCard {
@@ -166,6 +159,11 @@ class NotesService(private val project: Project, val scope: CoroutineScope) {
 
         return NoteCard(newFile.name, newFile.path)
     }
+
+    override fun dispose() {
+        currentNoteCardJob.cancel()
+        stateJob.cancel()
+    }
 }
 
 data class Topic(val name: String, val offset: Int) {
@@ -178,3 +176,6 @@ data class Topic(val name: String, val offset: Int) {
 
 val linkTextRegex = """\[([A-z.]*):(\d+)]""".toRegex()
 val linkRegex = Regex("""\[([A-z.]*):(\d+)]\(.*\)""")
+
+// todo: delete note with X
+// todo: load all notes from .note

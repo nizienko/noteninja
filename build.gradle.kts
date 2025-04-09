@@ -1,10 +1,10 @@
 plugins {
     kotlin("jvm") version "2.0.0"
-    id("org.jetbrains.intellij.platform") version "2.0.1"
+    id("org.jetbrains.intellij.platform") version "2.5.0"
 }
 
 group = "com.github.nizienko"
-version = "1.0.1"
+version = "1.0.2"
 
 repositories {
     mavenCentral()
