@@ -15,7 +15,8 @@ class FilesState : SimplePersistentStateComponent<Files>(Files()) {
     }
 
     fun removeFile(note: NoteCard) {
-        state.files.remove(note)
+        val newState = state.files.toMutableSet().also { it.remove(note) }
+        state.files = newState
     }
 
     fun setFileList(list: List<NoteCard>) {
@@ -39,7 +40,11 @@ class Files : BaseState() {
 
 data class NoteCard(
     var name: String, val path: String, var color: String? = null,
-)
+) {
+    override fun equals(other: Any?): Boolean {
+        return this.path == (other as? NoteCard)?.path
+    }
+}
 
 fun NoteCard.exist(): Boolean = File(path).exists()
 

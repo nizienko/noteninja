@@ -58,7 +58,7 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
                 currentEditor = editor
                 val editorPanel = DisposableEditorPanel(editor)
                 Disposer.register(this@OpenedNoteEditor, editorPanel)
-                editorPanel.border = Borders.customLine(parseColor(note.noteCard.color), 0, 1, 0, 0)
+                editorPanel.border = Borders.customLine(note.noteCard.color?.parseColor(), 0, 1, 0, 0)
 
                 addToCenter(editorPanel)
                 editor.contentComponent.requestFocusInWindow()

@@ -8,8 +8,4 @@ fun Color.toHex(): String {
     return hex.uppercase(Locale.getDefault())
 }
 
-fun parseColor(hex: String?): Color? = try {
-    Color.decode(hex)
-} catch (e: Throwable) {
-    null
-}
+fun String.parseColor(): Color = Color.decode(this)

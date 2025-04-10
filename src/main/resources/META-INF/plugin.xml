@@ -45,7 +45,6 @@
         <psi.referenceContributor language="Markdown" implementation="notes.link.BookmarkReferenceContributor"/>
     </extensions>
     <actions>
-        <group id="NotesActionGroup" text="Notes Actions" popup="false" icon="AllIcons.Actions.Edit"/>
         <action id="notes.action.SaveReferenceAction"
                 class="notes.action.SaveReferenceAction"
                 text="Save Reference to Notes" icon="AllIcons.Actions.Edit" description="Save reference to notes">
@@ -56,24 +55,21 @@
                 text="Save Selection to Notes" icon="AllIcons.Actions.Edit" description="Save selection to notes">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
+        // toolwindow actions
+        <action id="notes.action.CloseFileAction"
+                class="notes.action.CloseFileAction"
+                text="Close Note" icon="AllIcons.General.ArrowLeft" description="Close note">
+        </action>
         <action id="notes.action.FoldLinksAction"
                 class="notes.action.FoldLinksAction"
                 text="Fold Links" icon="AllIcons.Actions.Collapseall" description="Fold links">
-            <add-to-group group-id="NotesActionGroup" anchor="first"/>
         </action>
         <action id="notes.action.SetColorAction"
                 class="notes.action.SetColorAction">
-            <add-to-group group-id="NotesActionGroup" anchor="first"/>
         </action>
         <action id="notes.action.ShowHeadersAction"
                 class="notes.action.ShowHeadersAction"
                 text="Scroll to Topic" icon="AllIcons.Actions.ListFiles" description="Scroll to topic">
-            <add-to-group group-id="NotesActionGroup" anchor="last"/>
-        </action>
-        <action id="notes.action.CloseFileAction"
-                class="notes.action.CloseFileAction"
-                text="Close Note" icon="AllIcons.Actions.CloseDarkGrey" description="Close Note">
-            <add-to-group group-id="NotesActionGroup" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>

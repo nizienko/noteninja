@@ -16,7 +16,6 @@ class BookmarkReferenceContributor : PsiReferenceContributor() {
 
 class BookmarkPsiReferenceProvider : PsiReferenceProvider() {
     override fun getReferencesByElement(element: PsiElement, context: ProcessingContext): Array<PsiReference> {
-        println(element.text + " " + element::class.java)
         if (element is MarkdownLinkDestination) {
             return arrayOf(BookmarkReference(element))
         }
@@ -36,6 +35,6 @@ class FakeBookmarkElement(private val element: MarkdownLinkDestination) : FakePs
     }
 
     override fun navigate(requestFocus: Boolean) {
-        println("Opening ${element.text}")
+//        println("Opening ${element.text}")
     }
 }

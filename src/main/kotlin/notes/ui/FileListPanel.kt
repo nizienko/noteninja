@@ -20,6 +20,7 @@ import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBTextField
+import com.intellij.ui.util.maximumWidth
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.UIUtil
@@ -30,6 +31,9 @@ import notes.file.NotesFileType
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Point
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.StringSelection
+import java.awt.datatransfer.Transferable
 import java.awt.event.*
 import java.awt.event.MouseEvent.BUTTON1
 import javax.swing.*
@@ -40,12 +44,80 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
     private val model: DefaultListModel<NoteCard> = DefaultListModel()
     private val fileList = JBList(model)
     private val notesService = project.service<NotesService>()
-    private val filesState = service<FilesState>()
     private val colorWidth: Int
         get() = JBUI.scale(12)
 
     init {
         border = Borders.empty()
+        fileList.selectionMode = ListSelectionModel.MULTIPLE_INTERVAL_SELECTION
+        fileList.dragEnabled = true
+        fileList.dropMode = DropMode.INSERT
+        fileList.transferHandler = object : TransferHandler() {
+            override fun canImport(support: TransferSupport): Boolean {
+                if (!support.isDataFlavorSupported(DataFlavor.stringFlavor)) return false
+
+                // Get the drop location
+                val dropLocation = support.dropLocation as? JList.DropLocation ?: return false
+                val dropIndex = dropLocation.index
+
+                // Don't allow dropping beyond the last item
+                if (dropIndex > model.size()) return false
+
+                // Don't allow dropping on the same index
+                val sourceIndex = fileList.selectedIndex
+                if (sourceIndex == dropIndex || sourceIndex + 1 == dropIndex) return false
+
+                return true
+            }
+
+            override fun getSourceActions(c: JComponent): Int {
+                return TransferHandler.MOVE
+            }
+
+            override fun createTransferable(c: JComponent): Transferable? {
+                val list = c as JBList<*>
+                val value = list.selectedValue ?: return null
+                return StringSelection(value.toString())
+            }
+
+            override fun importData(support: TransferSupport): Boolean {
+                if (!canImport(support)) return false
+
+                val dl = support.dropLocation as? JList.DropLocation ?: return false
+                val targetIndex = dl.index
+
+                val sourceIndex = fileList.selectedIndex
+                if (sourceIndex < 0) return false
+
+                try {
+                    val noteCard = model.getElementAt(sourceIndex)
+                    model.remove(sourceIndex)
+
+                    // Calculate the correct insert index
+                    val adjustedIndex = if (targetIndex > sourceIndex) targetIndex - 1 else targetIndex
+                    model.add(adjustedIndex, noteCard)
+
+                    // Update selection
+                    fileList.selectedIndex = adjustedIndex
+
+                    // Update the service with the new order
+                    val files = model.elements().toList()
+                    service.saveFileList(files)
+
+                    return true
+                } catch (e: Exception) {
+                    return false
+                }
+            }
+
+            override fun exportDone(source: JComponent?, data: Transferable?, action: Int) {
+                super.exportDone(source, data, action)
+                // Ensure the list is repainted after the drag operation
+                source?.repaint()
+            }
+        }
+
+
         fileList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 if (e.clickCount == 2 && e.button == BUTTON1) {
@@ -56,7 +128,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
 
                     val index = fileList.locationToIndex(e.getPoint())
                     fileList.model.getElementAt(index)?.let {
-                        popupColor(it).show(RelativePoint(e))
+                        popupColor(listOf(it)).show(RelativePoint(e))
                     }
                 }
             }
@@ -70,23 +142,47 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                     hoveredIndex = index
                     fileList.repaint()
                 }
-                fileList.toolTipText = fileList.model.getElementAt(index)?.path?.replace(userHome, "~")
+
+                fileList.toolTipText = try {
+                    fileList.model.getElementAt(index)?.path?.replace(userHome, "~")
+                } catch (_: Throwable) {
+                    ""
+                }
             }
         })
-        fileList.addKeyListener(object : KeyAdapter(){
+        fileList.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
                 if (KeyEvent.VK_ENTER == e.keyCode) {
                     val selectedFile = fileList.selectedValue
                     openFile(project, selectedFile)
                 }
+                if (KeyEvent.VK_DELETE == e.keyCode) {
+                    fileList.selectedValuesList.toList().forEach { selectedValue ->
+                        service.removeNote(selectedValue)
+                        reLoadFileList()
+                    }
+                }
+                if (KeyEvent.VK_SPACE == e.keyCode) {
+                    val selectedFile = fileList.selectedValue
+                    val color = colors.next()?.toHex()
+                    selectedFile.color = if (selectedFile.color == color) {
+                        colors.next()?.toHex()
+                    } else {
+                        color
+                    }
+                    repaint()
+                }
             }
         })
         fileList.addMouseListener(object : MouseAdapter() {
             override fun mouseExited(e: MouseEvent) {
-                hoveredIndex = -1;
-                fileList.repaint();
+                hoveredIndex = -1
+                fileList.repaint()
             }
         })
+        fileList.addListSelectionListener {
+            lastColor = 0
+        }
         fileList.setCellRenderer { list, value, index, isSelected, cellHasFocus ->
             return@setCellRenderer BorderLayoutPanel().apply {
                 addToLeft(ColorGroupComponent(colorWidth, value))
@@ -102,7 +198,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                     } else {
                         UIUtil.getPanelBackground()
                     }
-                    if (cellHasFocus) {
+                    if (isSelected) {
                         background = UIUtil.getListSelectionBackground(true)
                     }
                     addToCenter(JBLabel(value.name))
@@ -124,8 +220,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                         val path = file.path
                         val note = NoteCard(file.name, path)
                         model.addElement(note)
-                        filesState.addFile(note)
-
+                        service.addNote(note)
                     }
                 }
 
@@ -140,17 +235,35 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
             })
             .addExtraAction(object : DumbAwareAction(AllIcons.Actions.Colors) {
                 override fun actionPerformed(e: AnActionEvent) {
-                    val note = fileList.selectedValue ?: return
+                    val notes = fileList.selectedValuesList
                     val component = e.inputEvent?.source as? JComponent ?: return
                     val point = component.locationOnScreen.let {
                         Point(it.x + component.width / 2, it.y + component.height / 2)
                     }
-                    popupColor(note).show(RelativePoint(point))
+                    popupColor(notes).show(RelativePoint(point))
                 }
 
                 override fun update(e: AnActionEvent) {
                     super.update(e)
                     e.presentation.text = "Set Color"
+                    e.presentation.isEnabledAndVisible = fileList.selectedValue != null
+                }
+
+                override fun getActionUpdateThread(): ActionUpdateThread {
+                    return ActionUpdateThread.BGT
+                }
+            })
+            .addExtraAction(object : DumbAwareAction(AllIcons.General.Delete) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    fileList.selectedValuesList.toList().forEach { selectedValue ->
+                        service.removeNote(selectedValue)
+                        reLoadFileList()
+                    }
+                }
+
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.text = "Delete"
                     e.presentation.isEnabledAndVisible = fileList.selectedValue != null
                 }
 
@@ -164,7 +277,6 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                     try {
                         val note = notesService.createNewFile(it)
                         model.addElement(note)
-                        filesState.addFile(note)
                         openFile(project, note)
 
                     } catch (e: Throwable) {
@@ -177,16 +289,9 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                 popup.show(RelativePoint(actionComponent, Point(0, 0)))
 
             }
-            .setRemoveAction {
-                val selectedIndex: Int = fileList.selectedIndex
-                val selectedValue = fileList.selectedValue
-                if (selectedIndex != -1) {
-                    model.remove(selectedIndex)
-                    filesState.removeFile(selectedValue)
-                }
-            }
-            .setMoveDownAction { moveFile(1) }
-            .setMoveUpAction { moveFile(-1) }
+            .disableRemoveAction()
+            .disableUpAction()
+            .disableDownAction()
             .setEditAction {
                 val selectedFile = fileList.selectedValue
                 openFile(project, selectedFile)
@@ -206,18 +311,6 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
         }
     }
 
-    private fun moveFile(n: Int) {
-        val selectedIndex: Int = fileList.selectedIndex
-        val selectedValue = fileList.selectedValue
-        if (selectedIndex != -1) {
-            model.remove(selectedIndex)
-            model.add(selectedIndex + n, selectedValue)
-            val files = model.elements().toList()
-            filesState.setFileList(files)
-            fileList.setSelectedValue(selectedValue, true)
-        }
-    }
-
     private fun openFile(project: Project, noteCard: NoteCard) {
         notesService.scope.launch {
             try {
@@ -234,7 +327,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
     private fun reLoadFileList() {
         val lastFile = fileList.selectedValue?.path //?: service<NotesService>().notesFile.path
         model.clear()
-        filesState.list().forEach {
+        service.noteCards().forEach {
             model.addElement(it)
             if (it.path == lastFile) {
                 fileList.setSelectedValue(it, true)
@@ -251,7 +344,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
     }
 }
 
-fun popupColor(note: NoteCard): JBPopup {
+fun popupColor(notes: List<NoteCard>): JBPopup {
     val model = DefaultListModel<Color>()
     colors.forEach { model.addElement(it) }
     val list = JBList(model).apply {
@@ -268,40 +361,62 @@ fun popupColor(note: NoteCard): JBPopup {
     return PopupChooserBuilder(list)
         .setItemChosenCallback(Runnable {
             val chosenColor = list.selectedValue.toHex()
-            if (note.color == chosenColor) {
-                note.color = null
-            } else {
-                note.color = list.selectedValue.toHex()
+            notes.forEach { note ->
+                if (note.color == chosenColor && notes.size == 1) {
+                    note.color = null
+                } else {
+                    note.color = list.selectedValue.toHex()
+                }
             }
         }).createPopup()
 }
 
+private var lastColor = 0
+
+fun List<Color>.next(): Color? {
+    lastColor = (lastColor + 1) % size + 1
+    return getOrNull(lastColor)
+}
+
 private val colors = listOf(
-    parseColor("#e81416"),
-    parseColor("#ffa500"),
-    parseColor("#faeb36"),
-    parseColor("#79c314"),
-    parseColor("#487de7"),
-    parseColor("#4b369d"),
-    parseColor("#70369d"),
-)
+    "#e81416",
+    "#ffa500",
+    "#faeb36",
+    "#79c314",
+    "#487de7",
+    "#4b369d",
+    "#70369d",
+).map { it.parseColor() }
 
 fun newNotePopup(action: (String) -> Unit): JBPopup {
     val textField = JBTextField()
+    val button = object : JButton("↵") {
+        override fun getPreferredSize(): Dimension {
+            val fontMetrics = getFontMetrics(font)
+            val textWidth = fontMetrics.stringWidth(text) + JBUI.scale(10)
+            return Dimension(textWidth, super.getPreferredSize().height)
+        }
+    }
+    textField.text = "new note"
+    textField.selectAll()
     val panel = BorderLayoutPanel()
     panel.addToCenter(textField)
+    panel.addToRight(button)
     val popup = JBPopupFactory.getInstance()
         .createComponentPopupBuilder(panel, textField)
         .setRequestFocus(true)
         .setMinSize(Dimension(200, 0))
         .createPopup()
-
+    button.addActionListener {
+        action(textField.text)
+        popup.closeOk(null)
+    }
     textField.addKeyListener(object : KeyAdapter() {
         override fun keyTyped(e: KeyEvent?) {
             if (e == null) return
             if (e.extendedKeyCode == KeyEvent.VK_ENTER) {
-                popup.closeOk(null)
                 action(textField.text)
+                popup.closeOk(null)
             }
         }
     })
@@ -319,7 +434,7 @@ class ColorGroupComponent(private val colorWidth: Int, private val note: NoteCar
     override fun paintComponent(g: java.awt.Graphics) {
         super.paintComponent(g)
         note.color?.let {
-            g.color = parseColor(it)
+            g.color = it.parseColor()
             g.fillRect(0, 0, colorWidth, height)
         }
     }

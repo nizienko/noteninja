@@ -1,7 +1,7 @@
 package notes
 
+import com.intellij.notification.NotificationGroupManager
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.readAndWriteAction
 import com.intellij.openapi.command.CommandProcessor
@@ -11,16 +11,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.startOffset
-import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import notes.ui.MainPanel
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeader
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeaderContent
 import java.io.File
@@ -28,7 +24,7 @@ import kotlin.io.path.Path
 
 @Service(Service.Level.PROJECT)
 class NotesService(private val project: Project, val scope: CoroutineScope) : Disposable {
-    private val filesService = service<FilesState>()
+    private val filesState = service<FilesState>()
     private val _currentNoteCard = MutableStateFlow<LoadedNoteCard?>(null)
     val currentNoteCard = _currentNoteCard.asStateFlow()
     val state = MutableStateFlow(NinjaState.LOADING)
@@ -39,23 +35,19 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
         currentNoteCard.collect { note ->
             if (note == null) return@collect
             updateTitle(note)
-            filesService.setLastFile(note.noteCard)
+            filesState.setLastFile(note.noteCard)
         }
     }
     private val stateJob = scope.launch {
         state.collect { newState -> updateTitle() }
     }
 
-    @Deprecated("")
-    private val editorPanel: MainPanel?
-        get() = UIUtil.findComponentOfType(toolWindow.component, MainPanel::class.java)
-
     suspend fun default() {
-        val note = filesService.state.lastFile?.takeIf { it.exist() }
-            ?: filesService.list().firstOrNull { it.exist() }
+        val note = filesState.state.lastFile?.takeIf { it.exist() }
+            ?: filesState.list().firstOrNull { it.exist() }
             ?: NoteCard(defaultFile.name, defaultFile.absolutePath).apply {
-                filesService.addFile(this)
-                filesService.state.lastFile = this
+                filesState.addFile(this)
+                filesState.state.lastFile = this
             }
         openFile(note)
     }
@@ -92,8 +84,19 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
     }
 
     suspend fun openFile(note: NoteCard) {
-        _currentNoteCard.emit(LoadedNoteCard(note))
-        state.emit(NinjaState.OPENED_NOTE)
+        try {
+            _currentNoteCard.emit(LoadedNoteCard(note))
+            state.emit(NinjaState.OPENED_NOTE)
+        } catch (e: Exception) {
+            val notification = NotificationGroupManager.getInstance()
+                .getNotificationGroup("noteninja")
+                .createNotification(
+                    "Failed to open file",
+                    "Could not open ${note.name}: ${e.message}",
+                    com.intellij.notification.NotificationType.ERROR
+                )
+            notification.notify(project)
+        }
     }
 
     suspend fun updateTitle(note: LoadedNoteCard? = null) {
@@ -156,13 +159,55 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
             newFile = assumeFile(n)
         }
         newFile.writeText("# $name")
-
-        return NoteCard(newFile.name, newFile.path)
+        val note = NoteCard(newFile.name, newFile.path)
+        addNote(note)
+        return note
     }
 
     override fun dispose() {
         currentNoteCardJob.cancel()
         stateJob.cancel()
+    }
+
+    fun noteCards(): Set<NoteCard> {
+        val knownList = filesState.list()
+        val filesInDefaultDir = File(defaultDir.toUri()).listFiles().filter { it.isFile && it.extension == "notes" }
+        val filesInDefaultDirWithKnownNames =
+            filesInDefaultDir.filter { knownList.any { k -> k.path == it.path }.not() }
+        val newNotes = filesInDefaultDirWithKnownNames.map { NoteCard(it.name, it.path) }
+        newNotes.forEach { addNote(it) }
+        val existingNotePaths = filesInDefaultDir.map { it.path }
+        knownList.toList().forEach { note ->
+            if (note.path !in existingNotePaths) {
+                removeNote(note)
+            }
+        }
+//        val newKnownList = filesState.list()
+        return filesState.list()
+    }
+
+    fun addNote(note: NoteCard) {
+        filesState.addFile(note)
+    }
+
+    fun removeNote(note: NoteCard) {
+        try {
+            filesState.removeFile(note)
+            File(note.path).delete()
+        } catch (e: Exception) {
+            val notification = NotificationGroupManager.getInstance()
+                .getNotificationGroup("noteninja")
+                .createNotification(
+                    "Failed to delete file",
+                    "Could not delete ${note.name}: ${e.message}",
+                    com.intellij.notification.NotificationType.ERROR
+                )
+            notification.notify(project)
+        }
+    }
+
+    fun saveFileList(notes: List<NoteCard>) {
+        filesState.setFileList(notes)
     }
 }
 
