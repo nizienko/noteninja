@@ -55,12 +55,13 @@ class NoteCardConverter : Converter<NoteCard>() {
     }
 }
 class NoteList: ArrayList<NoteCard>()
-class NotesConverter : Converter<MutableList<NoteCard>>() {
-    override fun fromString(value: String): ArrayList<NoteCard> {
-        return gson.fromJson(value, NoteList::class.java)
+class NotesConverter : Converter<MutableSet<NoteCard>>() {
+    override fun fromString(value: String): MutableSet<NoteCard> {
+        val list = gson.fromJson(value, NoteList::class.java)
+        return list.toMutableSet()
     }
 
-    override fun toString(value: MutableList<NoteCard>): String {
-        return gson.toJson(value)
+    override fun toString(value: MutableSet<NoteCard>): String {
+        return gson.toJson(value.toList())
     }
 }
