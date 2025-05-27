@@ -1,7 +1,6 @@
-package notes.action
+package notes.actions.file
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
@@ -43,6 +42,6 @@ class ShowHeadersAction : DumbAwareAction() {
     override fun update(e: AnActionEvent) {
         super.update(e)
         val project = e.project ?: return
-        e.presentation.isEnabledAndVisible = project.service<NotesService>().state.value == NinjaState.OPENED_NOTE
+        e.presentation.isEnabledAndVisible = project.service<NotesService>().currentState() == NinjaState.OPENED_NOTE
     }
 }

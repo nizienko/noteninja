@@ -32,5 +32,6 @@ class LoadedNoteCard(val noteCard: NoteCard) {
 enum class NinjaState {
     LOADING,
     FILES,
+    SEARCH,
     OPENED_NOTE
 }

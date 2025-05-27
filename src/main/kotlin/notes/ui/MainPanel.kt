@@ -5,6 +5,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.components.BorderLayoutPanel
 import kotlinx.coroutines.Dispatchers
@@ -26,29 +27,38 @@ class MainPanel(project: Project, disposable: Disposable) : BorderLayoutPanel(),
 
     val fileList = ChooseFilePanel(project)
     val openedEditor = OpenedNoteEditor(project)
+    val searchPanel = SearchPanel(project)
+    val ninjaLabel = JBLabel("Note ninja")
 
     private val stateJob = service.scope.launch {
-        service.state.collect {
+        service.stateFlow.collect { state ->
             withContext(Dispatchers.EDT) {
-                fileList.isVisible = false
-                openedEditor.isVisible = false
-                when (it) {
+                mainPanel.components.forEach {
+                    it.isVisible = false
+                }
+                when (state) {
                     NinjaState.FILES -> fileList.isVisible = true
                     NinjaState.OPENED_NOTE -> openedEditor.isVisible = true
-                    NinjaState.LOADING -> {}
+                    NinjaState.LOADING -> ninjaLabel.isVisible = true
+                    NinjaState.SEARCH -> {
+                        searchPanel.isVisible = true
+                        searchPanel.focusOnSearchField()
+                    }
                 }
             }
         }
     }
-
+    private val mainPanel = JPanel(CardLayout())
     init {
         border = Borders.empty()
-        val panel = JPanel(CardLayout()).apply {
+        mainPanel.apply {
             border = Borders.empty()
             add(openedEditor)
             add(fileList)
+            add(ninjaLabel)
+            add(searchPanel)
         }
-        addToCenter(panel)
+        addToCenter(mainPanel)
 
         service.scope.launch {
             service.default()
@@ -59,5 +69,6 @@ class MainPanel(project: Project, disposable: Disposable) : BorderLayoutPanel(),
         openedEditor.dispose()
         fileList.dispose()
         stateJob.cancel()
+        searchPanel.dispose()
     }
 }

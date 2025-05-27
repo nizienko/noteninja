@@ -45,31 +45,36 @@
         <psi.referenceContributor language="Markdown" implementation="notes.link.BookmarkReferenceContributor"/>
     </extensions>
     <actions>
-        <action id="notes.action.SaveReferenceAction"
-                class="notes.action.SaveReferenceAction"
+        <action id="notes.actions.file.SaveReferenceAction"
+                class="notes.actions.file.SaveReferenceAction"
                 text="Save Reference to Notes" icon="AllIcons.Actions.Edit" description="Save reference to notes">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
-        <action id="notes.action.SaveSelectionAction"
-                class="notes.action.SaveSelectionAction"
+        <action id="notes.actions.file.SaveSelectionAction"
+                class="notes.actions.file.SaveSelectionAction"
                 text="Save Selection to Notes" icon="AllIcons.Actions.Edit" description="Save selection to notes">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
         // toolwindow actions
-        <action id="notes.action.CloseFileAction"
-                class="notes.action.CloseFileAction"
+        <action id="notes.actions.file.BackAction"
+                class="notes.actions.file.BackAction"
                 text="Close Note" icon="AllIcons.General.ArrowLeft" description="Close note">
         </action>
-        <action id="notes.action.FoldLinksAction"
-                class="notes.action.FoldLinksAction"
+        <action id="notes.actions.file.FoldLinksAction"
+                class="notes.actions.file.FoldLinksAction"
                 text="Fold Links" icon="AllIcons.Actions.Collapseall" description="Fold links">
         </action>
-        <action id="notes.action.SetColorAction"
-                class="notes.action.SetColorAction">
+        <action id="notes.actions.file.SetColorAction"
+                class="notes.actions.file.SetColorAction">
         </action>
-        <action id="notes.action.ShowHeadersAction"
-                class="notes.action.ShowHeadersAction"
+        <action id="notes.actions.file.ShowHeadersAction"
+                class="notes.actions.file.ShowHeadersAction"
                 text="Scroll to Topic" icon="AllIcons.Actions.ListFiles" description="Scroll to topic">
         </action>
+
+        // File list
+        <group>
+
+        </group>
     </actions>
 </idea-plugin>

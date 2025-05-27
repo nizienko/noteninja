@@ -49,9 +49,7 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
                 editor.contentComponent.addKeyListener(object : KeyAdapter() {
                     override fun keyPressed(e: KeyEvent) {
                         if (KeyEvent.VK_ESCAPE == e.keyCode) {
-                            service.scope.launch {
-                                service.goToNoteList()
-                            }
+                            service.back()
                         }
                     }
                 })
@@ -101,6 +99,17 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
                     writeAction {
                         editor.caretModel.moveToOffset(action.topic.offset)
                         editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+                    }
+                }
+
+                is NoteAction.FindKeyword -> {
+                    readAndWriteAction {
+                        val doc = editor.document.text
+                        val offset = doc.indexOf(action.text, ignoreCase = true)
+                        writeAction {
+                            editor.caretModel.moveToOffset(offset)
+                            editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+                        }
                     }
                 }
             }

@@ -1,12 +1,10 @@
-package notes.action
+package notes.actions.file
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.util.TextRange
 import kotlinx.coroutines.launch
@@ -22,13 +20,17 @@ class SaveSelectionAction : DumbAwareAction() {
             service.writeText(text)
             service.scrollToDown()
         }
-        service.toolWindow.activate(null)
+        service.toolWindow?.activate(null)
     }
 
     override fun update(e: AnActionEvent) {
         val project = e.project
         val editor = e.getData(CommonDataKeys.EDITOR)
-        e.presentation.isEnabledAndVisible = (project != null && editor != null && editor.selectionModel.hasSelection())
+        e.presentation.isEnabledAndVisible = (project != null
+                && editor != null
+                && editor.selectionModel.hasSelection()
+                && project.service<NotesService>().toolWindow != null
+                )
     }
 
     private fun createText(editor: Editor): String {

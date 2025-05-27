@@ -6,6 +6,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.notification.NotificationsManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooser
@@ -20,7 +21,6 @@ import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBTextField
-import com.intellij.ui.util.maximumWidth
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.UIUtil
@@ -36,16 +36,41 @@ import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
 import java.awt.event.*
 import java.awt.event.MouseEvent.BUTTON1
+import java.awt.event.MouseEvent.BUTTON3
 import javax.swing.*
 
+
+internal val colorWidth: Int
+    get() = JBUI.scale(12)
+
+internal fun createNoteItem(note: NoteCard, index: Int, hoveredIndex: Int, isSelected: Boolean): JComponent {
+    return BorderLayoutPanel().apply {
+        addToLeft(ColorGroupComponent(colorWidth, note))
+        border = Borders.compound(
+            Borders.empty(1, 2),
+        )
+        addToCenter(BorderLayoutPanel().apply {
+            border = Borders.compound(
+                Borders.empty(5, 8),
+            )
+            background = if (index == hoveredIndex) {
+                UIUtil.getListSelectionBackground(false)
+            } else {
+                UIUtil.getPanelBackground()
+            }
+            if (isSelected) {
+                background = UIUtil.getListSelectionBackground(true)
+            }
+            addToCenter(JBLabel(note.name))
+        })
+    }
+}
 
 class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
     private val service = project.service<NotesService>()
     private val model: DefaultListModel<NoteCard> = DefaultListModel()
     private val fileList = JBList(model)
     private val notesService = project.service<NotesService>()
-    private val colorWidth: Int
-        get() = JBUI.scale(12)
 
     init {
         border = Borders.empty()
@@ -124,7 +149,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                     val selectedFile = fileList.selectedValue
                     openFile(project, selectedFile)
                 }
-                if (e.clickCount == 1 && e.button == BUTTON1 && e.point.x < colorWidth) {
+                if (e.clickCount == 1 && (e.button == BUTTON1 && e.point.x < colorWidth) || e.button == BUTTON3) {
 
                     val index = fileList.locationToIndex(e.getPoint())
                     fileList.model.getElementAt(index)?.let {
@@ -184,28 +209,48 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
             lastColor = 0
         }
         fileList.setCellRenderer { list, value, index, isSelected, cellHasFocus ->
-            return@setCellRenderer BorderLayoutPanel().apply {
-                addToLeft(ColorGroupComponent(colorWidth, value))
-                border = Borders.compound(
-                    Borders.empty(1, 2),
-                )
-                addToCenter(BorderLayoutPanel().apply {
-                    border = Borders.compound(
-                        Borders.empty(5, 8),
-                    )
-                    background = if (index == hoveredIndex) {
-                        UIUtil.getListSelectionBackground(false)
-                    } else {
-                        UIUtil.getPanelBackground()
-                    }
-                    if (isSelected) {
-                        background = UIUtil.getListSelectionBackground(true)
-                    }
-                    addToCenter(JBLabel(value.name))
-                })
-            }
+            return@setCellRenderer createNoteItem(value, index, hoveredIndex, isSelected)
         }
+        val popupActions = mutableListOf<AnAction>()
         val decoratedList = ToolbarDecorator.createDecorator(fileList)
+            .addExtraAction(object : DumbAwareAction(AllIcons.Actions.Colors) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val notes = fileList.selectedValuesList
+                    val component = e.inputEvent?.source as? JComponent ?: return
+                    val point = component.locationOnScreen.let {
+                        Point(it.x + component.width / 2, it.y + component.height / 2)
+                    }
+                    popupColor(notes).show(RelativePoint(point))
+                }
+
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.text = "Set Color"
+                    e.presentation.isEnabledAndVisible = fileList.selectedValue != null
+                }
+
+                override fun getActionUpdateThread(): ActionUpdateThread {
+                    return ActionUpdateThread.BGT
+                }
+            }.also { popupActions.add(it) })
+            .addExtraAction(object : DumbAwareAction(AllIcons.General.Delete) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    fileList.selectedValuesList.toList().forEach { selectedValue ->
+                        service.removeNote(selectedValue)
+                        reLoadFileList()
+                    }
+                }
+
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.text = "Delete"
+                    e.presentation.isEnabledAndVisible = fileList.selectedValue != null
+                }
+
+                override fun getActionUpdateThread(): ActionUpdateThread {
+                    return ActionUpdateThread.BGT
+                }
+            }.also { popupActions.add(it) })
             .addExtraAction(object : DumbAwareAction(AllIcons.General.OpenDisk) {
                 override fun actionPerformed(e: AnActionEvent) {
                     AllIcons.General.ArrowDown
@@ -233,38 +278,13 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                     return ActionUpdateThread.BGT
                 }
             })
-            .addExtraAction(object : DumbAwareAction(AllIcons.Actions.Colors) {
+            .addExtraAction(object : DumbAwareAction(AllIcons.Actions.Search) {
                 override fun actionPerformed(e: AnActionEvent) {
-                    val notes = fileList.selectedValuesList
-                    val component = e.inputEvent?.source as? JComponent ?: return
-                    val point = component.locationOnScreen.let {
-                        Point(it.x + component.width / 2, it.y + component.height / 2)
-                    }
-                    popupColor(notes).show(RelativePoint(point))
+                    service.goto(NinjaState.SEARCH)
                 }
-
                 override fun update(e: AnActionEvent) {
                     super.update(e)
-                    e.presentation.text = "Set Color"
-                    e.presentation.isEnabledAndVisible = fileList.selectedValue != null
-                }
-
-                override fun getActionUpdateThread(): ActionUpdateThread {
-                    return ActionUpdateThread.BGT
-                }
-            })
-            .addExtraAction(object : DumbAwareAction(AllIcons.General.Delete) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    fileList.selectedValuesList.toList().forEach { selectedValue ->
-                        service.removeNote(selectedValue)
-                        reLoadFileList()
-                    }
-                }
-
-                override fun update(e: AnActionEvent) {
-                    super.update(e)
-                    e.presentation.text = "Delete"
-                    e.presentation.isEnabledAndVisible = fileList.selectedValue != null
+                    e.presentation.text = "Search"
                 }
 
                 override fun getActionUpdateThread(): ActionUpdateThread {
@@ -273,7 +293,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
             })
             .setAddActionName("Create New Note")
             .setAddAction { a ->
-                val popup = newNotePopup {
+                val popup = textFieldPopup("new note") {
                     try {
                         val note = notesService.createNewFile(it)
                         model.addElement(note)
@@ -300,10 +320,11 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
 
         decoratedList.border = Borders.empty()
         addToCenter(decoratedList)
+        reLoadFileList()
     }
 
     private val stateJob = service.scope.launch {
-        service.state.collect {
+        service.stateFlow.collect {
             if (it == NinjaState.FILES) {
                 reLoadFileList()
                 setFocus()
@@ -325,7 +346,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
     }
 
     private fun reLoadFileList() {
-        val lastFile = fileList.selectedValue?.path //?: service<NotesService>().notesFile.path
+        val lastFile = fileList.selectedValue?.path
         model.clear()
         service.noteCards().forEach {
             model.addElement(it)
@@ -388,7 +409,7 @@ private val colors = listOf(
     "#70369d",
 ).map { it.parseColor() }
 
-fun newNotePopup(action: (String) -> Unit): JBPopup {
+fun textFieldPopup(text: String, action: (String) -> Unit): JBPopup {
     val textField = JBTextField()
     val button = object : JButton("↵") {
         override fun getPreferredSize(): Dimension {
@@ -397,7 +418,7 @@ fun newNotePopup(action: (String) -> Unit): JBPopup {
             return Dimension(textWidth, super.getPreferredSize().height)
         }
     }
-    textField.text = "new note"
+    textField.text = text
     textField.selectAll()
     val panel = BorderLayoutPanel()
     panel.addToCenter(textField)

@@ -44,6 +44,10 @@ data class NoteCard(
     override fun equals(other: Any?): Boolean {
         return this.path == (other as? NoteCard)?.path
     }
+
+    override fun hashCode(): Int {
+        return path.hashCode()
+    }
 }
 
 fun NoteCard.exist(): Boolean = File(path).exists()

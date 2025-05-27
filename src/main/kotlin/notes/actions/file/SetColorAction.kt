@@ -1,4 +1,4 @@
-package notes.action
+package notes.actions.file
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -26,7 +26,7 @@ class SetColorAction: DumbAwareAction(AllIcons.Actions.Colors) {
         super.update(e)
         e.presentation.text = "Set Color"
         val project = e.project ?: return
-        e.presentation.isEnabledAndVisible = project.service<NotesService>().state.value == NinjaState.FILES
+        e.presentation.isEnabledAndVisible = project.service<NotesService>().currentState() == NinjaState.FILES
     }
 
     override fun getActionUpdateThread(): ActionUpdateThread {

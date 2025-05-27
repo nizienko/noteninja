@@ -17,9 +17,9 @@ class NotesToolwindow : ToolWindowFactory, DumbAware {
 
     private fun createUI(project: Project, toolWindow: ToolWindow): BorderLayoutPanel {
         val actions = listOf(
-            "notes.action.CloseFileAction",
-            "notes.action.ShowHeadersAction",
-            "notes.action.FoldLinksAction",
+            "notes.actions.file.BackAction",
+            "notes.actions.file.ShowHeadersAction",
+            "notes.actions.file.FoldLinksAction",
         ).mapNotNull { ActionManager.getInstance().getAction(it) }
         toolWindow.setTitleActions(actions)
         return MainPanel(project, toolWindow.disposable)

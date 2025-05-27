@@ -4,13 +4,14 @@ plugins {
 }
 
 group = "com.github.nizienko"
-version = "1.0.2"
+version = "1.0.3"
 
 repositories {
     mavenCentral()
     intellijPlatform {
         defaultRepositories()
     }
+    maven("https://jitpack.io")
 }
 
 dependencies {
@@ -20,11 +21,20 @@ dependencies {
         bundledPlugin("org.intellij.plugins.markdown")
         pluginVerifier()
     }
+    implementation("com.github.haroldadmin.lucilla:core:0.2.0")
     testImplementation(kotlin("test"))
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.10.0")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 }
 
 tasks.test {
     useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }
 
 intellijPlatform {

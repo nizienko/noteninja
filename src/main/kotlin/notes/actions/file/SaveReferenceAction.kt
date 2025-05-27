@@ -1,4 +1,4 @@
-package notes.action
+package notes.actions.file
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -20,13 +20,16 @@ class SaveReferenceAction : DumbAwareAction() {
         service.scope.launch {
             service.insertTextToCaret(text)
         }
-        service.toolWindow.activate(null)
+        service.toolWindow?.activate(null)
     }
 
     override fun update(e: AnActionEvent) {
         val project = e.project
         val editor = e.getData(CommonDataKeys.EDITOR)
-        e.presentation.isEnabledAndVisible = (project != null && editor != null)
+        e.presentation.isEnabledAndVisible = (project != null
+                && editor != null
+                && project.service<NotesService>().toolWindow != null
+                )
     }
 
     private fun createText(editor: Editor): String {
@@ -50,5 +53,6 @@ fun createReference(editor: Editor): String {
     if (linkTextRegex.matches(linkName)) return createLink(linkName, path)
     return createLink(createLinkName(defaultName, caret.offset), path)
 }
+
 private fun createLinkName(name: String, offset: Int): String = "[$name:${offset}]"
-private fun createLink(name: String, path: String) : String = "$name($path)"
+private fun createLink(name: String, path: String): String = "$name($path)"
