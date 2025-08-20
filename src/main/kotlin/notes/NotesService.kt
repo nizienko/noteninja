@@ -213,7 +213,7 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
 
     fun noteCards(): Set<NoteCard> {
         val knownList = filesState.list()
-        val filesInDefaultDir = File(defaultDir.toUri()).listFiles().filter { it.isFile && it.extension == "notes" }
+        val filesInDefaultDir = File(defaultDir.toUri()).listFiles()?.filter { it.isFile && it.extension == "notes" } ?: emptyList()
         val filesInDefaultDirWithKnownNames =
             filesInDefaultDir.filter { knownList.any { k -> k.path == it.path }.not() }
         val newNotes = filesInDefaultDirWithKnownNames.map { NoteCard(it.name, it.path) }
