@@ -1,10 +1,10 @@
 plugins {
     kotlin("jvm") version "2.0.0"
-    id("org.jetbrains.intellij.platform") version "2.5.0"
+    id("org.jetbrains.intellij.platform") version "2.7.2"
 }
 
 group = "com.github.nizienko"
-version = "1.0.3"
+version = "1.0.4"
 
 repositories {
     mavenCentral()
@@ -16,8 +16,7 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        intellijIdeaCommunity("2024.3")
-        instrumentationTools()
+        intellijIdeaCommunity("2025.2")
         bundledPlugin("org.intellij.plugins.markdown")
         pluginVerifier()
     }
@@ -46,7 +45,7 @@ intellijPlatform {
     pluginConfiguration {
         ideaVersion {
             sinceBuild.set("242.1")
-            untilBuild.set("252.*")
+            untilBuild.set("253.*")
         }
     }
 }
