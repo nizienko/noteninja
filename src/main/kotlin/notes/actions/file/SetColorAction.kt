@@ -14,12 +14,13 @@ import javax.swing.JComponent
 
 class SetColorAction: DumbAwareAction(AllIcons.Actions.Colors) {
     override fun actionPerformed(e: AnActionEvent) {
-        val note = e.project?.service<NotesService>()?.currentNoteCard?.value?.noteCard ?: return
+        val service = e.project?.service<NotesService>() ?: return
+        val note = service.currentNoteCard.value?.noteCard ?: return
         val component = e.inputEvent?.source as? JComponent ?: return
         val point = component.locationOnScreen.let {
             Point(it.x + component.width / 2, it.y + component.height / 2)
         }
-        popupColor(listOf(note)).show(RelativePoint(point))
+        popupColor(listOf(note), service::noteChanged).show(RelativePoint(point))
     }
 
     override fun update(e: AnActionEvent) {

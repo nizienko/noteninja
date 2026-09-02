@@ -11,29 +11,49 @@ class NoteIndexService {
     data class Result(val note: NoteCard, val searchResult: SearchResult)
     private val index = useFts<NoteIndex>()
     private val indexMap = mutableMapOf<Int, NoteCard>()
-    fun buildIndex(notes: Set<NoteCard>) {
-        if (indexMap.isEmpty()) {
-            index.clear()
-            notes.map { note ->
-                val content = File(note.path).readText()
-                NoteIndex(note.hashCode(), note.path, note.name, content)
-                    .also { indexMap[it.id] = note }
-            }.forEach { idx -> index.add(idx) }
+    private val pathIds = mutableMapOf<String, Int>()
+    private val lock = Any()
+    private var nextId = 1
+
+    fun buildIndex(notes: Set<NoteCard>) = synchronized(lock) {
+        val removedPaths = pathIds.keys - notes.mapTo(mutableSetOf()) { it.path }
+        removedPaths.mapNotNull { path -> indexMap[pathIds.getValue(path)] }.forEach(::remove)
+
+        notes.filter { it.path !in pathIds && it.exist() }.forEach { note ->
+            val id = nextId++
+            val noteIndex = NoteIndex(id, note.path, note.name, File(note.path).readText())
+            pathIds[note.path] = id
+            indexMap[id] = note
+            index.add(noteIndex)
         }
     }
 
     suspend fun rebuild(note: LoadedNoteCard) {
-        indexMap[note.noteCard.hashCode()]?.let { index.remove(NoteIndex(it.hashCode(), it.path, it.name, "")) }
-        val newIndex =
-            NoteIndex(note.noteCard.hashCode(), note.file.absolutePath, note.file.name, note.getDocument().text)
-        index.add(newIndex)
-        indexMap[newIndex.id] = note.noteCard
+        val text = note.getDocument().text
+        synchronized(lock) {
+            val id = pathIds[note.noteCard.path] ?: nextId++
+            indexMap[id]?.let { index.remove(NoteIndex(id, it.path, it.name, "")) }
+            val newIndex = NoteIndex(id, note.file.absolutePath, note.noteCard.name, text)
+            index.add(newIndex)
+            pathIds[note.noteCard.path] = id
+            indexMap[newIndex.id] = note.noteCard
+        }
     }
 
-    fun search(query: String) = index.search(query).map {
-        Result(indexMap[it.documentId] ?: throw IllegalStateException("No note with id ${it.documentId}"), it)
+    fun remove(note: NoteCard) {
+        synchronized(lock) {
+            val id = pathIds.remove(note.path) ?: return@synchronized
+            index.remove(NoteIndex(id, note.path, note.name, ""))
+            indexMap.remove(id)
+        }
     }
-    fun autocomplete(query: String) = index.autocomplete(query)
+
+    fun search(query: String) = synchronized(lock) {
+        index.search(query).mapNotNull {
+            indexMap[it.documentId]?.let { note -> Result(note, it) }
+        }
+    }
+    fun autocomplete(query: String) = synchronized(lock) { index.autocomplete(query) }
 }
 
 data class NoteIndex(@Id val id: Int, val path: String, val name: String, val text: String)

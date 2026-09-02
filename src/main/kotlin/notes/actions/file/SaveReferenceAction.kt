@@ -17,10 +17,11 @@ class SaveReferenceAction : DumbAwareAction() {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val text = createText(editor)
         val service = project.service<NotesService>()
-        service.scope.launch {
-            service.insertTextToCaret(text)
+        service.toolWindow?.activate {
+            service.scope.launch {
+                service.insertTextToCaret(text)
+            }
         }
-        service.toolWindow?.activate(null)
     }
 
     override fun update(e: AnActionEvent) {

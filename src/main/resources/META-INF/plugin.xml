@@ -35,8 +35,6 @@
                            displayType="BALLOON"/>
         <toolWindow id="Notes" secondary="true" icon="AllIcons.Actions.Edit" anchor="right"
                     factoryClass="notes.toolWindow.NotesToolwindow"/>
-        <psi.declarationProvider
-                implementation="notes.symbols.LinkPsiSymbolDeclarationProvider"/>
         <lang.foldingBuilder
                 language="Markdown"
                 implementationClass="notes.folding.LinksFoldingBuilder"
@@ -71,10 +69,5 @@
                 class="notes.actions.file.ShowHeadersAction"
                 text="Scroll to Topic" icon="AllIcons.Actions.ListFiles" description="Scroll to topic">
         </action>
-
-        // File list
-        <group>
-
-        </group>
     </actions>
 </idea-plugin>

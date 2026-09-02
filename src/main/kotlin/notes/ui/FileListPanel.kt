@@ -8,6 +8,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
@@ -25,7 +26,12 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import notes.*
 import notes.file.NotesFileType
 import java.awt.Color
@@ -42,6 +48,17 @@ import javax.swing.*
 
 internal val colorWidth: Int
     get() = JBUI.scale(12)
+
+internal fun replaceFileListModel(
+    model: DefaultListModel<NoteCard>,
+    notes: List<NoteCard>,
+    selectedPath: String?,
+): NoteCard? {
+    check(SwingUtilities.isEventDispatchThread()) { "The file list model must be updated on the EDT" }
+    model.clear()
+    notes.forEach(model::addElement)
+    return notes.firstOrNull { it.path == selectedPath }
+}
 
 internal fun createNoteItem(note: NoteCard, index: Int, hoveredIndex: Int, isSelected: Boolean): JComponent {
     return BorderLayoutPanel().apply {
@@ -66,7 +83,7 @@ internal fun createNoteItem(note: NoteCard, index: Int, hoveredIndex: Int, isSel
     }
 }
 
-class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
+class ChooseFilePanel(private val project: Project) : BorderLayoutPanel(), Disposable {
     private val service = project.service<NotesService>()
     private val model: DefaultListModel<NoteCard> = DefaultListModel()
     private val fileList = JBList(model)
@@ -153,7 +170,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
 
                     val index = fileList.locationToIndex(e.getPoint())
                     fileList.model.getElementAt(index)?.let {
-                        popupColor(listOf(it)).show(RelativePoint(e))
+                        popupColor(listOf(it), service::noteChanged).show(RelativePoint(e))
                     }
                 }
             }
@@ -184,8 +201,8 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                 if (KeyEvent.VK_DELETE == e.keyCode) {
                     fileList.selectedValuesList.toList().forEach { selectedValue ->
                         service.removeNote(selectedValue)
-                        reLoadFileList()
                     }
+                    requestFileListReload()
                 }
                 if (KeyEvent.VK_SPACE == e.keyCode) {
                     val selectedFile = fileList.selectedValue
@@ -195,6 +212,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                     } else {
                         color
                     }
+                    service.noteChanged(selectedFile)
                     repaint()
                 }
             }
@@ -220,7 +238,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                     val point = component.locationOnScreen.let {
                         Point(it.x + component.width / 2, it.y + component.height / 2)
                     }
-                    popupColor(notes).show(RelativePoint(point))
+                    popupColor(notes, service::noteChanged).show(RelativePoint(point))
                 }
 
                 override fun update(e: AnActionEvent) {
@@ -237,8 +255,8 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
                 override fun actionPerformed(e: AnActionEvent) {
                     fileList.selectedValuesList.toList().forEach { selectedValue ->
                         service.removeNote(selectedValue)
-                        reLoadFileList()
                     }
+                    requestFileListReload()
                 }
 
                 override fun update(e: AnActionEvent) {
@@ -320,14 +338,13 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
 
         decoratedList.border = Borders.empty()
         addToCenter(decoratedList)
-        reLoadFileList()
+        requestFileListReload()
     }
 
     private val stateJob = service.scope.launch {
         service.stateFlow.collect {
             if (it == NinjaState.FILES) {
-                reLoadFileList()
-                setFocus()
+                reloadFileList(requestFocus = true)
             }
         }
     }
@@ -345,19 +362,36 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
         }
     }
 
-    private fun reLoadFileList() {
-        val lastFile = fileList.selectedValue?.path
-        model.clear()
-        service.noteCards().forEach {
-            model.addElement(it)
-            if (it.path == lastFile) {
-                fileList.setSelectedValue(it, true)
-            }
+    private val reloadMutex = Mutex()
+
+    private fun requestFileListReload(requestFocus: Boolean = false) {
+        service.scope.launch {
+            reloadFileList(requestFocus)
         }
     }
 
-    private fun setFocus() {
-        fileList.requestFocus()
+    private suspend fun reloadFileList(requestFocus: Boolean) = reloadMutex.withLock {
+        val selectedPath = withContext(Dispatchers.EDT) { fileList.selectedValue?.path }
+        val notes = try {
+            withContext(Dispatchers.IO) { service.noteCards().toList() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            withContext(Dispatchers.EDT) {
+                NotificationsManager.getNotificationsManager().showNotification(
+                    Notification("noteninja", "Can't load notes: ${e.message}", NotificationType.ERROR), project
+                )
+            }
+            return@withLock
+        }
+
+        withContext(Dispatchers.EDT) {
+            val selection = replaceFileListModel(model, notes, selectedPath)
+            selection?.let { fileList.setSelectedValue(it, true) }
+            if (requestFocus) {
+                fileList.requestFocusInWindow()
+            }
+        }
     }
 
     override fun dispose() {
@@ -365,7 +399,7 @@ class ChooseFilePanel(project: Project) : BorderLayoutPanel(), Disposable {
     }
 }
 
-fun popupColor(notes: List<NoteCard>): JBPopup {
+fun popupColor(notes: List<NoteCard>, onChange: (NoteCard) -> Unit = {}): JBPopup {
     val model = DefaultListModel<Color>()
     colors.forEach { model.addElement(it) }
     val list = JBList(model).apply {
@@ -388,6 +422,7 @@ fun popupColor(notes: List<NoteCard>): JBPopup {
                 } else {
                     note.color = list.selectedValue.toHex()
                 }
+                onChange(note)
             }
         }).createPopup()
 }

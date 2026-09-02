@@ -3,9 +3,9 @@ package notes
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType.*
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
-import com.intellij.openapi.application.readAndWriteAction
-import com.intellij.openapi.command.CommandProcessor
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
@@ -14,12 +14,15 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.startOffset
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeader
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeaderContent
 import java.io.File
@@ -34,6 +37,7 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
     val stateFlow = _stateFlow.asStateFlow()
     private val _noteActions = MutableSharedFlow<NoteAction>()
     val notesActions = _noteActions.asSharedFlow()
+    private val editorReady = MutableStateFlow(false)
 
     private val stateStack = ArrayDeque<NinjaState>()
     fun goto(state: NinjaState) {
@@ -49,12 +53,17 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
     }
 
     fun currentState(): NinjaState = _stateFlow.value
-    fun back() {
+    suspend fun back() {
         if (currentState() == NinjaState.OPENED_NOTE) {
             val note = currentNoteCard.value
             if (note != null) {
-                scope.launch {
+                try {
                     service<NoteIndexService>().rebuild(note)
+                } catch (e: Exception) {
+                    NotificationGroupManager.getInstance()
+                        .getNotificationGroup("noteninja")
+                        .createNotification("Failed to update search index", e.message ?: "Unknown error", WARNING)
+                        .notify(project)
                 }
             }
         }
@@ -77,11 +86,12 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
     }
 
     suspend fun default() {
+        if (currentNoteCard.value != null) return
         val note = filesState.state.lastFile?.takeIf { it.exist() }
             ?: filesState.list().firstOrNull { it.exist() }
             ?: NoteCard(defaultFile.name, defaultFile.absolutePath).apply {
                 filesState.addFile(this)
-                filesState.state.lastFile = this
+                filesState.setLastFile(this)
             }
         openFile(note)
     }
@@ -106,20 +116,23 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
         }
 
     suspend fun writeText(text: String) {
-        val document = currentNoteCard.value?.getDocument()
-        readAndWriteAction {
-            writeAction {
-                CommandProcessor.getInstance().executeCommand(project, {
-                    document?.setText(document.text + "\n\n" + text)
-                }, "Insert", null)
+        if (currentNoteCard.value == null) default()
+        val document = currentNoteCard.value?.getDocument() ?: return
+        withContext(Dispatchers.EDT) {
+            WriteCommandAction.runWriteCommandAction(project) {
+                document.setText(document.text + "\n\n" + text)
             }
         }
     }
 
-    suspend fun openFile(note: NoteCard) {
+    suspend fun openFile(note: NoteCard): Boolean {
         try {
-            _currentNoteCard.emit(LoadedNoteCard(note))
+            val loadedNote = LoadedNoteCard(note)
+            loadedNote.getDocument()
+            editorReady.value = false
+            _currentNoteCard.emit(loadedNote)
             goto(NinjaState.OPENED_NOTE)
+            return true
         } catch (e: Exception) {
             val notification = NotificationGroupManager.getInstance()
                 .getNotificationGroup("noteninja")
@@ -128,14 +141,23 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
                     "Could not open ${note.name}: ${e.message}",
                     ERROR
                 )
-            notification.notify(null)
+            notification.notify(project)
+            return false
         }
     }
 
     suspend fun openFileAndFindKeyword(note: NoteCard, keyword: String) {
-        openFile(note)
-        delay(700)
+        if (!openFile(note)) return
+        awaitEditor()
         _noteActions.emit(NoteAction.FindKeyword(keyword))
+    }
+
+    fun notifyEditorReady() {
+        editorReady.value = true
+    }
+
+    private suspend fun awaitEditor() {
+        editorReady.filter { it }.first()
     }
 
     suspend fun updateTitle(note: LoadedNoteCard? = null) {
@@ -146,6 +168,7 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
             noteCardToUpdate.noteCard.name = readAction { header.text }.let {
                 it.trim().trimStart { it == '#' }.trim()
             }
+            filesState.fileChanged(noteCardToUpdate.noteCard)
         }
     }
 
@@ -159,6 +182,7 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
         if (currentState() != NinjaState.OPENED_NOTE) {
             goto(NinjaState.OPENED_NOTE)
         }
+        awaitEditor()
         _noteActions.emit(NoteAction.ScrollDown())
     }
 
@@ -166,17 +190,21 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
         if (currentState() != NinjaState.OPENED_NOTE) {
             goto(NinjaState.OPENED_NOTE)
         }
+        awaitEditor()
         _noteActions.emit(NoteAction.ScrollToElement(topic))
     }
 
     suspend fun insertTextToCaret(text: String) {
+        if (currentNoteCard.value == null) default()
         if (currentState() != NinjaState.OPENED_NOTE) {
             goto(NinjaState.OPENED_NOTE)
         }
+        awaitEditor()
         _noteActions.emit(NoteAction.InsertText(text))
     }
 
     suspend fun foldLinks() {
+        awaitEditor()
         _noteActions.emit(NoteAction.RefoldLinks())
     }
 
@@ -189,9 +217,15 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
     }
 
     fun createNewFile(name: String): NoteCard {
+        val safeName = name.trim()
+        require(safeName.isNotEmpty()) { "Note name cannot be empty" }
+        require(safeName != "." && safeName != ".." && safeName.none { it == '/' || it == '\\' }) {
+            "Note name cannot contain path separators"
+        }
+
         fun assumeFile(n: Int): File = defaultDir
             .apply { toFile().mkdirs() }
-            .resolve("$name${n.takeIf { it > 0 } ?: ""}.notes")
+            .resolve("$safeName${n.takeIf { it > 0 } ?: ""}.notes")
             .toFile()
 
         var n = 0
@@ -200,7 +234,7 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
             n++
             newFile = assumeFile(n)
         }
-        newFile.writeText("# $name")
+        newFile.writeText("# $safeName")
         val note = NoteCard(newFile.name, newFile.path)
         addNote(note)
         return note
@@ -218,10 +252,9 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
             filesInDefaultDir.filter { knownList.any { k -> k.path == it.path }.not() }
         val newNotes = filesInDefaultDirWithKnownNames.map { NoteCard(it.name, it.path) }
         newNotes.forEach { addNote(it) }
-        val existingNotePaths = filesInDefaultDir.map { it.path }
         knownList.toList().forEach { note ->
-            if (note.path !in existingNotePaths) {
-                removeNote(note)
+            if (!note.exist()) {
+                forgetNote(note)
             }
         }
         service<NoteIndexService>().buildIndex(filesState.list())
@@ -234,8 +267,11 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
 
     fun removeNote(note: NoteCard) {
         try {
-            filesState.removeFile(note)
-            File(note.path).delete()
+            val file = File(note.path)
+            if (file.exists() && !file.delete()) {
+                throw IllegalStateException("The file could not be deleted")
+            }
+            forgetNote(note)
         } catch (e: Exception) {
             val notification = NotificationGroupManager.getInstance()
                 .getNotificationGroup("noteninja")
@@ -246,6 +282,15 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
                 )
             notification.notify(project)
         }
+    }
+
+    private fun forgetNote(note: NoteCard) {
+        filesState.removeFile(note)
+        service<NoteIndexService>().remove(note)
+    }
+
+    fun noteChanged(note: NoteCard) {
+        filesState.fileChanged(note)
     }
 
     fun saveFileList(notes: List<NoteCard>) {
@@ -261,5 +306,5 @@ data class Topic(val name: String, val offset: Int) {
     }
 }
 
-val linkTextRegex = """\[([A-z.]*):(\d+)]""".toRegex()
-val linkRegex = Regex("""\[([A-z.]*):(\d+)]\(.*\)""")
+val linkTextRegex = """\[([^\[\]\r\n]+):(\d+)]""".toRegex()
+val linkRegex = Regex("""\[([^\[\]\r\n]+):(\d+)]\((.+)\)""")

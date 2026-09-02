@@ -28,7 +28,7 @@ class SearchPanel(project: Project) : BorderLayoutPanel(), Disposable {
     private val index = service<NoteIndexService>()
     private val completionProvider = SearchCompletionProvider(project)
     private val backButton = JButton("<-").apply {
-        addActionListener { service.back() }
+        addActionListener { service.scope.launch { service.back() } }
     }
     private val searchTextField = TextFieldWithAutoCompletion(project, completionProvider, true, "").apply {
         document.addDocumentListener(object : DocumentListener {
@@ -42,7 +42,7 @@ class SearchPanel(project: Project) : BorderLayoutPanel(), Disposable {
         addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
                 if (KeyEvent.VK_ESCAPE == e.keyCode) {
-                    service.back()
+                    service.scope.launch { service.back() }
                 }
             }
         })

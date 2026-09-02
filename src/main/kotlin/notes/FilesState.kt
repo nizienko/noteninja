@@ -11,24 +11,44 @@ import java.io.File
 @State(name = "notes.xml", storages = [Storage("notes.xml", roamingType = RoamingType.DISABLED)])
 class FilesState : SimplePersistentStateComponent<Files>(Files()) {
     fun addFile(note: NoteCard) {
-        state.files.add(note)
+        if (state.files.add(note)) {
+            state.markModified()
+        }
     }
 
     fun removeFile(note: NoteCard) {
         val newState = state.files.toMutableSet().also { it.remove(note) }
-        state.files = newState
+        if (newState != state.files) {
+            state.files = newState
+            state.markModified()
+        }
     }
 
     fun setFileList(list: List<NoteCard>) {
-        state.files.clear()
-        state.files.addAll(list)
+        val newFiles = list.toMutableSet()
+        if (newFiles.toList() != state.files.toList()) {
+            state.files = newFiles
+            state.markModified()
+        }
     }
 
     fun setLastFile(note: NoteCard) {
-        state.lastFile = note
+        if (state.lastFile != note) {
+            state.lastFile = note
+            state.markModified()
+        }
     }
 
-    fun list(): Set<NoteCard> = state.files
+    fun fileChanged(note: NoteCard) {
+        if (state.files.any { it.path == note.path }) {
+            state.markModified()
+        }
+        if (state.lastFile?.path == note.path) {
+            state.lastFile = note
+        }
+    }
+
+    fun list(): Set<NoteCard> = state.files.toSet()
 }
 
 class Files : BaseState() {
@@ -36,6 +56,10 @@ class Files : BaseState() {
     var files: MutableSet<NoteCard> = mutableSetOf()
     @OptionTag(converter = NoteCardConverter::class)
     var lastFile: NoteCard? = null
+
+    fun markModified() {
+        incrementModificationCount()
+    }
 }
 
 data class NoteCard(

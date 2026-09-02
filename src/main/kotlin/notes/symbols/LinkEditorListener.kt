@@ -2,14 +2,13 @@ package notes.symbols
 
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.readAndWriteAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.event.EditorMouseListener
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileEditor.impl.text.TextEditorImpl
+import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.util.PsiUtilBase
 import kotlinx.coroutines.Dispatchers
@@ -27,13 +26,9 @@ class LinkEditorListener : EditorMouseListener {
 
         if (isControlOrMetaDown(event)) {
             if (linkTextRegex.matches(element.text) ) {
-                val (_, offset) = element.text.substringAfter("[").substringBefore("]").split(":")
-                    .takeIf { it.size == 2 }
-                    ?.let { it[0] to it[1] }
-                    ?: return
+                val offset = linkTextRegex.matchEntire(element.text)?.groupValues?.get(2) ?: return
                 val parentText = element.parent.text
-                if (Regex("\\[.*]\\(.*\\)").matches(parentText).not()) return
-                val path = parentText.substringAfterLast("(").substringBeforeLast(")")
+                val path = notes.linkRegex.matchEntire(parentText)?.groupValues?.get(3) ?: return
                 project.service<NotesService>().scope.launch {
                     val file = LocalFileSystem.getInstance().findFileByPath(path)
                     if (file == null) {
@@ -44,9 +39,9 @@ class LinkEditorListener : EditorMouseListener {
                         FileEditorManager.getInstance(project).openFile(file, true)
                     }
                     val offsetInt = offset.toIntOrNull() ?: return@launch
-                    editors.firstOrNull { it.file == file }?.let { it as? TextEditorImpl }?.editor?.let {
+                    editors.filterIsInstance<TextEditor>().firstOrNull { it.file == file }?.editor?.let {
                         withContext(Dispatchers.EDT) {
-                            it.caretModel.moveToOffset(offsetInt)
+                            it.caretModel.moveToOffset(offsetInt.coerceIn(0, it.document.textLength))
                             it.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
                         }
                     }
@@ -58,10 +53,8 @@ class LinkEditorListener : EditorMouseListener {
     private fun showFileNotFoundError(editor: Editor) {
         val project = editor.project ?: return
         project.service<NotesService>().scope.launch {
-            readAndWriteAction {
-                writeAction {
-                    HintManager.getInstance().showErrorHint(editor, "Can't find file")
-                }
+            withContext(Dispatchers.EDT) {
+                HintManager.getInstance().showErrorHint(editor, "Can't find file")
             }
         }
     }

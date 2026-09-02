@@ -3,8 +3,7 @@ package notes.ui
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
-import com.intellij.openapi.application.readAndWriteAction
-import com.intellij.openapi.command.CommandProcessor
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.*
 import com.intellij.openapi.project.Project
@@ -29,39 +28,49 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
     private val service = project.service<NotesService>()
 
     private var currentEditor: Editor? = null
+    private var currentEditorPanel: DisposableEditorPanel? = null
 
     private val fileJob = service.scope.launch {
         service.currentNoteCard.collect { note ->
             withContext(Dispatchers.EDT) {
+                currentEditorPanel?.let(Disposer::dispose)
+                currentEditorPanel = null
+                currentEditor = null
                 removeAll()
             }
             if (note == null) return@collect
-            val document = note.getDocument()
-            withContext(Dispatchers.EDT) {
-                val editor = EditorFactory.getInstance()
-                    .createEditor(document, project, NotesFileType.INSTANCE, false)
-                editor.addEditorMouseListener(LinkEditorListener())
-                val editorSettings = editor.settings
-                editorSettings.isLineNumbersShown = false
-                editorSettings.setGutterIconsShown(false)
-                editorSettings.isLineMarkerAreaShown = false
-                editorSettings.isFoldingOutlineShown = true
-                editor.contentComponent.addKeyListener(object : KeyAdapter() {
-                    override fun keyPressed(e: KeyEvent) {
-                        if (KeyEvent.VK_ESCAPE == e.keyCode) {
-                            service.back()
+            try {
+                val document = note.getDocument()
+                withContext(Dispatchers.EDT) {
+                    val editor = EditorFactory.getInstance()
+                        .createEditor(document, project, NotesFileType.INSTANCE, false)
+                    editor.addEditorMouseListener(LinkEditorListener())
+                    val editorSettings = editor.settings
+                    editorSettings.isLineNumbersShown = false
+                    editorSettings.setGutterIconsShown(false)
+                    editorSettings.isLineMarkerAreaShown = false
+                    editorSettings.isFoldingOutlineShown = true
+                    editor.contentComponent.addKeyListener(object : KeyAdapter() {
+                        override fun keyPressed(e: KeyEvent) {
+                            if (KeyEvent.VK_ESCAPE == e.keyCode) {
+                                service.scope.launch { service.back() }
+                            }
                         }
-                    }
-                })
-                currentEditor = editor
-                val editorPanel = DisposableEditorPanel(editor)
-                Disposer.register(this@OpenedNoteEditor, editorPanel)
-                editorPanel.border = Borders.customLine(note.noteCard.color?.parseColor(), 0, 1, 0, 0)
+                    })
+                    currentEditor = editor
+                    val editorPanel = DisposableEditorPanel(editor)
+                    currentEditorPanel = editorPanel
+                    Disposer.register(this@OpenedNoteEditor, editorPanel)
+                    editorPanel.border = Borders.customLine(note.noteCard.color?.parseColor(), 0, 1, 0, 0)
 
-                addToCenter(editorPanel)
-                editor.contentComponent.requestFocusInWindow()
-                revalidate()
-                repaint()
+                    addToCenter(editorPanel)
+                    editor.contentComponent.requestFocusInWindow()
+                    revalidate()
+                    repaint()
+                    service.notifyEditorReady()
+                }
+            } catch (_: Exception) {
+                // openFile reports load errors; keep this collector alive for the next note.
             }
         }
     }
@@ -72,13 +81,11 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
             when (action) {
                 is NoteAction.InsertText -> {
                     val offset = readAction { editor.caretModel.primaryCaret.offset }
-                    readAndWriteAction {
-                        writeAction {
-                            CommandProcessor.getInstance().executeCommand(project, {
-                                editor.document.insertString(offset, action.text)
-                            }, "Insert", null)
-                            editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+                    withContext(Dispatchers.EDT) {
+                        WriteCommandAction.runWriteCommandAction(project) {
+                            editor.document.insertString(offset, action.text)
                         }
+                        editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
                     }
                     refoldLinks(editor)
                 }
@@ -95,18 +102,15 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
                     }
                 }
 
-                is NoteAction.ScrollToElement -> readAndWriteAction {
-                    writeAction {
-                        editor.caretModel.moveToOffset(action.topic.offset)
+                is NoteAction.ScrollToElement -> withContext(Dispatchers.EDT) {
+                        editor.caretModel.moveToOffset(action.topic.offset.coerceIn(0, editor.document.textLength))
                         editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
-                    }
                 }
 
                 is NoteAction.FindKeyword -> {
-                    readAndWriteAction {
-                        val doc = editor.document.text
-                        val offset = doc.indexOf(action.text, ignoreCase = true)
-                        writeAction {
+                    val offset = readAction { editor.document.text.indexOf(action.text, ignoreCase = true) }
+                    if (offset >= 0) {
+                        withContext(Dispatchers.EDT) {
                             editor.caretModel.moveToOffset(offset)
                             editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
                         }
@@ -120,14 +124,12 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
         val project = editor.project ?: return
         val foldingModel = editor.foldingModel
         project.service<NotesService>().scope.launch {
-            readAndWriteAction {
-                writeAction {
-                    foldingModel.runBatchFoldingOperation {
-                        val foldRegions = linksFoldingRegions(editor)
-                        for (foldRegion in foldRegions) {
-                            if (foldRegion.isExpanded) {
-                                foldRegion.isExpanded = false
-                            }
+            withContext(Dispatchers.EDT) {
+                foldingModel.runBatchFoldingOperation {
+                    val foldRegions = linksFoldingRegions(editor)
+                    for (foldRegion in foldRegions) {
+                        if (foldRegion.isExpanded) {
+                            foldRegion.isExpanded = false
                         }
                     }
                 }
@@ -142,5 +144,8 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
     override fun dispose() {
         fileJob.cancel()
         noteActionsJob.cancel()
+        currentEditorPanel?.let(Disposer::dispose)
+        currentEditorPanel = null
+        currentEditor = null
     }
 }
