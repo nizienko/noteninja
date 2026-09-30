@@ -10,60 +10,70 @@ import java.io.File
 @Service
 @State(name = "notes.xml", storages = [Storage("notes.xml", roamingType = RoamingType.DISABLED)])
 class FilesState : SimplePersistentStateComponent<Files>(Files()) {
-    fun addFile(note: NoteCard) {
-        if (state.files.add(note)) {
-            state.markModified()
+    @Synchronized fun addFile(note: NoteCard) {
+        if (note in state.files) return
+        state.files = (state.files + note).toMutableSet()
+        state.markChanged()
+    }
+
+    @Synchronized fun removeFile(note: NoteCard) {
+        if (note in state.files) {
+            state.files = (state.files - note).toMutableSet()
+            state.markChanged()
+        }
+        if (state.lastFile == note) {
+            state.lastFile = null
+            state.markChanged()
         }
     }
 
-    fun removeFile(note: NoteCard) {
-        val newState = state.files.toMutableSet().also { it.remove(note) }
-        if (newState != state.files) {
-            state.files = newState
-            state.markModified()
-        }
+    @Synchronized fun setFileList(list: List<NoteCard>) {
+        if (state.files.toList() == list.distinct()) return
+        val existing = state.files.associateBy { it.path }
+        state.files = list.mapTo(linkedSetOf()) { existing[it.path] ?: it }
+        state.markChanged()
     }
 
-    fun setFileList(list: List<NoteCard>) {
-        val newFiles = list.toMutableSet()
-        if (newFiles.toList() != state.files.toList()) {
-            state.files = newFiles
-            state.markModified()
-        }
+    @Synchronized fun setLastFile(note: NoteCard) {
+        if (state.lastFile == note) return
+        state.lastFile = state.files.firstOrNull { it == note } ?: note
+        state.markChanged()
     }
 
-    fun setLastFile(note: NoteCard) {
-        if (state.lastFile != note) {
-            state.lastFile = note
-            state.markModified()
-        }
+    @Synchronized fun list(): Set<NoteCard> = state.files.toSet()
+    @Synchronized fun find(note: NoteCard): NoteCard? = state.files.firstOrNull { it == note }
+
+    @Synchronized fun setName(note: NoteCard, name: String) {
+        val existing = state.files.firstOrNull { it == note } ?: return
+        updateMetadata(existing, name, existing.color)
     }
 
-    fun fileChanged(note: NoteCard) {
-        if (state.files.any { it.path == note.path }) {
-            state.markModified()
-        }
-        if (state.lastFile?.path == note.path) {
-            state.lastFile = note
-        }
+    @Synchronized fun setColor(note: NoteCard, color: String?) {
+        val existing = state.files.firstOrNull { it == note } ?: return
+        updateMetadata(existing, existing.name, color)
     }
 
-    fun list(): Set<NoteCard> = state.files.toSet()
+    private fun updateMetadata(note: NoteCard, name: String, color: String?) {
+        val existing = state.files.firstOrNull { it == note } ?: return
+        if (existing.name == name && existing.color == color) return
+        val updated = existing.copy(name = name, color = color)
+        state.files = state.files.mapTo(linkedSetOf()) { if (it == note) updated else it }
+        if (state.lastFile == note) state.lastFile = updated
+        state.markChanged()
+    }
 }
 
 class Files : BaseState() {
+    // Keep the legacy converter-backed XML fields; every mutation is explicitly tracked by FilesState.
+    fun markChanged() = incrementModificationCount()
     @OptionTag(converter = NotesConverter::class)
     var files: MutableSet<NoteCard> = mutableSetOf()
     @OptionTag(converter = NoteCardConverter::class)
     var lastFile: NoteCard? = null
-
-    fun markModified() {
-        incrementModificationCount()
-    }
 }
 
 data class NoteCard(
-    var name: String, val path: String, var color: String? = null,
+    val name: String, val path: String, val color: String? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         return this.path == (other as? NoteCard)?.path

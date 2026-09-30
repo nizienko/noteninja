@@ -5,10 +5,10 @@ import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.NotificationsManager
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
@@ -26,11 +26,10 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.Borders
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import notes.*
 import notes.file.NotesFileType
@@ -83,11 +82,17 @@ internal fun createNoteItem(note: NoteCard, index: Int, hoveredIndex: Int, isSel
     }
 }
 
-class ChooseFilePanel(private val project: Project) : BorderLayoutPanel(), Disposable {
+class ChooseFilePanel(
+    private val project: Project,
+    private val loadNotes: suspend () -> Set<NoteCard> = { project.service<NotesService>().noteCards() },
+) : BorderLayoutPanel(), Disposable {
     private val service = project.service<NotesService>()
     private val model: DefaultListModel<NoteCard> = DefaultListModel()
     private val fileList = JBList(model)
     private val notesService = project.service<NotesService>()
+    private var refreshJob: Job? = null
+    private var disposed = false
+    private var refreshVersion = 0L
 
     init {
         border = Borders.empty()
@@ -170,7 +175,7 @@ class ChooseFilePanel(private val project: Project) : BorderLayoutPanel(), Dispo
 
                     val index = fileList.locationToIndex(e.getPoint())
                     fileList.model.getElementAt(index)?.let {
-                        popupColor(listOf(it), service::noteChanged).show(RelativePoint(e))
+                        popupColor(listOf(it)) { reLoadFileList() }.show(RelativePoint(e))
                     }
                 }
             }
@@ -199,21 +204,18 @@ class ChooseFilePanel(private val project: Project) : BorderLayoutPanel(), Dispo
                     openFile(project, selectedFile)
                 }
                 if (KeyEvent.VK_DELETE == e.keyCode) {
-                    fileList.selectedValuesList.toList().forEach { selectedValue ->
-                        service.removeNote(selectedValue)
-                    }
-                    requestFileListReload()
+                    deleteSelected()
                 }
                 if (KeyEvent.VK_SPACE == e.keyCode) {
-                    val selectedFile = fileList.selectedValue
+                    val selectedFile = fileList.selectedValue ?: return
                     val color = colors.next()?.toHex()
-                    selectedFile.color = if (selectedFile.color == color) {
+                    val current = service<FilesState>().find(selectedFile) ?: selectedFile
+                    service<FilesState>().setColor(selectedFile, if (current.color == color) {
                         colors.next()?.toHex()
                     } else {
                         color
-                    }
-                    service.noteChanged(selectedFile)
-                    repaint()
+                    })
+                    reLoadFileList()
                 }
             }
         })
@@ -238,7 +240,7 @@ class ChooseFilePanel(private val project: Project) : BorderLayoutPanel(), Dispo
                     val point = component.locationOnScreen.let {
                         Point(it.x + component.width / 2, it.y + component.height / 2)
                     }
-                    popupColor(notes, service::noteChanged).show(RelativePoint(point))
+                    popupColor(notes) { reLoadFileList() }.show(RelativePoint(point))
                 }
 
                 override fun update(e: AnActionEvent) {
@@ -253,10 +255,7 @@ class ChooseFilePanel(private val project: Project) : BorderLayoutPanel(), Dispo
             }.also { popupActions.add(it) })
             .addExtraAction(object : DumbAwareAction(AllIcons.General.Delete) {
                 override fun actionPerformed(e: AnActionEvent) {
-                    fileList.selectedValuesList.toList().forEach { selectedValue ->
-                        service.removeNote(selectedValue)
-                    }
-                    requestFileListReload()
+                    deleteSelected()
                 }
 
                 override fun update(e: AnActionEvent) {
@@ -338,13 +337,13 @@ class ChooseFilePanel(private val project: Project) : BorderLayoutPanel(), Dispo
 
         decoratedList.border = Borders.empty()
         addToCenter(decoratedList)
-        requestFileListReload()
+        reLoadFileList()
     }
 
     private val stateJob = service.scope.launch {
         service.stateFlow.collect {
             if (it == NinjaState.FILES) {
-                reloadFileList(requestFocus = true)
+                withContext(Dispatchers.EDT) { reLoadFileList() }
             }
         }
     }
@@ -362,44 +361,54 @@ class ChooseFilePanel(private val project: Project) : BorderLayoutPanel(), Dispo
         }
     }
 
-    private val reloadMutex = Mutex()
-
-    private fun requestFileListReload(requestFocus: Boolean = false) {
-        service.scope.launch {
-            reloadFileList(requestFocus)
+    private fun reLoadFileList() {
+        check(SwingUtilities.isEventDispatchThread())
+        if (disposed) return
+        val version = ++refreshVersion
+        refreshJob?.cancel()
+        refreshJob = service.scope.launch(Dispatchers.IO) {
+            val notes = try {
+                loadNotes()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                withContext(Dispatchers.EDT) {
+                    if (!disposed && version == refreshVersion) {
+                        NotificationsManager.getNotificationsManager().showNotification(
+                            Notification("noteninja", "Can't load notes: ${e.message}", NotificationType.ERROR), project
+                        )
+                    }
+                }
+                return@launch
+            }
+            withContext(Dispatchers.EDT) {
+                if (disposed || version != refreshVersion) return@withContext
+                val selectedPaths = fileList.selectedValuesList.map { it.path }.toSet()
+                replaceFileListModel(model, notes.toList(), fileList.selectedValue?.path)
+                fileList.selectedIndices = notes.withIndex().filter { it.value.path in selectedPaths }
+                    .map { it.index }.toIntArray()
+                if (service.currentState() == NinjaState.FILES) fileList.requestFocusInWindow()
+            }
         }
     }
 
-    private suspend fun reloadFileList(requestFocus: Boolean) = reloadMutex.withLock {
-        val selectedPath = withContext(Dispatchers.EDT) { fileList.selectedValue?.path }
-        val notes = try {
-            withContext(Dispatchers.IO) { service.noteCards().toList() }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            withContext(Dispatchers.EDT) {
-                NotificationsManager.getNotificationsManager().showNotification(
-                    Notification("noteninja", "Can't load notes: ${e.message}", NotificationType.ERROR), project
-                )
-            }
-            return@withLock
-        }
-
-        withContext(Dispatchers.EDT) {
-            val selection = replaceFileListModel(model, notes, selectedPath)
-            selection?.let { fileList.setSelectedValue(it, true) }
-            if (requestFocus) {
-                fileList.requestFocusInWindow()
-            }
+    private fun deleteSelected() {
+        val selected = fileList.selectedValuesList.toList()
+        service.scope.launch(Dispatchers.IO) {
+            selected.forEach { service.removeNote(it) }
+            withContext(Dispatchers.EDT) { reLoadFileList() }
         }
     }
 
     override fun dispose() {
+        disposed = true
+        refreshVersion++
+        refreshJob?.cancel()
         stateJob.cancel()
     }
 }
 
-fun popupColor(notes: List<NoteCard>, onChange: (NoteCard) -> Unit = {}): JBPopup {
+fun popupColor(notes: List<NoteCard>, onChanged: () -> Unit = {}): JBPopup {
     val model = DefaultListModel<Color>()
     colors.forEach { model.addElement(it) }
     val list = JBList(model).apply {
@@ -417,13 +426,14 @@ fun popupColor(notes: List<NoteCard>, onChange: (NoteCard) -> Unit = {}): JBPopu
         .setItemChosenCallback(Runnable {
             val chosenColor = list.selectedValue.toHex()
             notes.forEach { note ->
-                if (note.color == chosenColor && notes.size == 1) {
-                    note.color = null
+                val current = service<FilesState>().find(note) ?: note
+                if (current.color == chosenColor && notes.size == 1) {
+                    service<FilesState>().setColor(note, null)
                 } else {
-                    note.color = list.selectedValue.toHex()
+                    service<FilesState>().setColor(note, list.selectedValue.toHex())
                 }
-                onChange(note)
             }
+            onChanged()
         }).createPopup()
 }
 
@@ -489,7 +499,7 @@ class ColorGroupComponent(private val colorWidth: Int, private val note: NoteCar
 
     override fun paintComponent(g: java.awt.Graphics) {
         super.paintComponent(g)
-        note.color?.let {
+        service<FilesState>().find(note)?.color?.let {
             g.color = it.parseColor()
             g.fillRect(0, 0, colorWidth, height)
         }

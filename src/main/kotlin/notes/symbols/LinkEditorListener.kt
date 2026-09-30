@@ -15,47 +15,40 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import notes.NotesService
-import notes.linkTextRegex
+import notes.NoteReferences
 
 class LinkEditorListener : EditorMouseListener {
 
     override fun mouseClicked(event: EditorMouseEvent) {
         val editor = event.editor
-        val element = PsiUtilBase.getElementAtCaret(editor)?.parent ?: return
+        val element = PsiUtilBase.getElementAtCaret(editor) ?: return
         val project = editor.project ?: return
 
         if (isControlOrMetaDown(event)) {
-            if (linkTextRegex.matches(element.text) ) {
-                val offset = linkTextRegex.matchEntire(element.text)?.groupValues?.get(2) ?: return
-                val parentText = element.parent.text
-                val path = notes.linkRegex.matchEntire(parentText)?.groupValues?.get(3) ?: return
-                project.service<NotesService>().scope.launch {
-                    val file = LocalFileSystem.getInstance().findFileByPath(path)
-                    if (file == null) {
-                        showFileNotFoundError(editor)
-                        return@launch
-                    }
-                    val editors = withContext(Dispatchers.EDT) {
-                        FileEditorManager.getInstance(project).openFile(file, true)
-                    }
-                    val offsetInt = offset.toIntOrNull() ?: return@launch
-                    editors.filterIsInstance<TextEditor>().firstOrNull { it.file == file }?.editor?.let {
-                        withContext(Dispatchers.EDT) {
-                            it.caretModel.moveToOffset(offsetInt.coerceIn(0, it.document.textLength))
-                            it.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
-                        }
+            val reference = generateSequence(element) { it.parent }
+                .mapNotNull { NoteReferences.parse(it.text) }.firstOrNull() ?: return
+            project.service<NotesService>().scope.launch {
+                val file = LocalFileSystem.getInstance().findFileByPath(reference.path)
+                if (file == null) {
+                    showFileNotFoundError(editor)
+                    return@launch
+                }
+                val editors = withContext(Dispatchers.EDT) {
+                    FileEditorManager.getInstance(project).openFile(file, true)
+                }
+                editors.firstOrNull { it.file == file }?.let { it as? TextEditor }?.editor?.let {
+                    withContext(Dispatchers.EDT) {
+                        it.caretModel.moveToOffset(reference.offset.coerceAtMost(it.document.textLength))
+                        it.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
                     }
                 }
             }
         }
     }
 
-    private fun showFileNotFoundError(editor: Editor) {
-        val project = editor.project ?: return
-        project.service<NotesService>().scope.launch {
-            withContext(Dispatchers.EDT) {
-                HintManager.getInstance().showErrorHint(editor, "Can't find file")
-            }
+    private suspend fun showFileNotFoundError(editor: Editor) {
+        withContext(Dispatchers.EDT) {
+            HintManager.getInstance().showErrorHint(editor, "Can't find file")
         }
     }
 

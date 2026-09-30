@@ -5,7 +5,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.*
 import com.intellij.util.ProcessingContext
 import notes.file.NotesFileType
-import notes.linkRegex
+import notes.NoteReferences
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownLinkDestination
 
 class BookmarkReferenceContributor : PsiReferenceContributor() {
@@ -20,7 +20,7 @@ class BookmarkPsiReferenceProvider : PsiReferenceProvider() {
     override fun getReferencesByElement(element: PsiElement, context: ProcessingContext): Array<PsiReference> {
         if (element is MarkdownLinkDestination &&
             element.containingFile.fileType == NotesFileType.INSTANCE &&
-            linkRegex.matches(element.parent.text)
+            NoteReferences.parse(element.parent.text) != null
         ) {
             return arrayOf(BookmarkReference(element))
         }
@@ -30,7 +30,7 @@ class BookmarkPsiReferenceProvider : PsiReferenceProvider() {
 
 class BookmarkReference(private val element: MarkdownLinkDestination) : PsiReferenceBase<PsiElement>(element) {
     override fun resolve(): PsiElement? {
-        val path = linkRegex.matchEntire(element.parent.text)?.groupValues?.get(3) ?: return null
+        val path = NoteReferences.parse(element.parent.text)?.path ?: return null
         val target = LocalFileSystem.getInstance().findFileByPath(path) ?: return null
         return PsiManager.getInstance(element.project).findFile(target)
     }

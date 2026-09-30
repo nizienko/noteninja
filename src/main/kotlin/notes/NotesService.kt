@@ -14,6 +14,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.startOffset
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -165,10 +166,10 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
         val psiFile = noteCardToUpdate.getPsiFile(project)
         val header = readAction { PsiTreeUtil.findChildOfType(psiFile, MarkdownHeader::class.java) }
         if (header != null) {
-            noteCardToUpdate.noteCard.name = readAction { header.text }.let {
+            val name = readAction { header.text }.let {
                 it.trim().trimStart { it == '#' }.trim()
             }
-            filesState.fileChanged(noteCardToUpdate.noteCard)
+            filesState.setName(noteCardToUpdate.noteCard, name)
         }
     }
 
@@ -209,7 +210,8 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
     }
 
 
-    suspend fun goToNoteList() {val note = _currentNoteCard.value
+    suspend fun goToNoteList() {
+        val note = _currentNoteCard.value
         if (note != null) {
             service<NoteIndexService>().rebuild(note)
         }
@@ -245,7 +247,7 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
         stateJob.cancel()
     }
 
-    fun noteCards(): Set<NoteCard> {
+    suspend fun noteCards(): Set<NoteCard> = service<NoteIndexService>().refresh {
         val knownList = filesState.list()
         val filesInDefaultDir = File(defaultDir.toUri()).listFiles()?.filter { it.isFile && it.extension == "notes" } ?: emptyList()
         val filesInDefaultDirWithKnownNames =
@@ -254,24 +256,27 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
         newNotes.forEach { addNote(it) }
         knownList.toList().forEach { note ->
             if (!note.exist()) {
-                forgetNote(note)
+                filesState.removeFile(note)
             }
         }
-        service<NoteIndexService>().buildIndex(filesState.list())
-        return filesState.list()
+        filesState.list()
     }
 
     fun addNote(note: NoteCard) {
         filesState.addFile(note)
     }
 
-    fun removeNote(note: NoteCard) {
+    suspend fun removeNote(note: NoteCard) {
         try {
-            val file = File(note.path)
-            if (file.exists() && !file.delete()) {
-                throw IllegalStateException("The file could not be deleted")
+            service<NoteIndexService>().remove(note) {
+                val file = File(note.path)
+                if (file.exists() && !file.delete()) {
+                    throw IllegalStateException("The file could not be deleted")
+                }
+                filesState.removeFile(note)
             }
-            forgetNote(note)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val notification = NotificationGroupManager.getInstance()
                 .getNotificationGroup("noteninja")
@@ -282,15 +287,6 @@ class NotesService(private val project: Project, val scope: CoroutineScope) : Di
                 )
             notification.notify(project)
         }
-    }
-
-    private fun forgetNote(note: NoteCard) {
-        filesState.removeFile(note)
-        service<NoteIndexService>().remove(note)
-    }
-
-    fun noteChanged(note: NoteCard) {
-        filesState.fileChanged(note)
     }
 
     fun saveFileList(notes: List<NoteCard>) {
@@ -305,6 +301,3 @@ data class Topic(val name: String, val offset: Int) {
         }
     }
 }
-
-val linkTextRegex = """\[([^\[\]\r\n]+):(\d+)]""".toRegex()
-val linkRegex = Regex("""\[([^\[\]\r\n]+):(\d+)]\((.+)\)""")

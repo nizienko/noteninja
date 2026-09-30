@@ -9,7 +9,7 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.psi.PsiDocumentManager
 import kotlinx.coroutines.launch
 import notes.NotesService
-import notes.linkTextRegex
+import notes.NoteReferences
 
 class SaveReferenceAction : DumbAwareAction() {
     override fun actionPerformed(e: AnActionEvent) {
@@ -48,12 +48,7 @@ fun createReference(editor: Editor): String {
     val caret = editor.caretModel.primaryCaret
     val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return defaultName
     val element = psiFile.findElementAt(caret.offset)
-    val name = element?.text ?: defaultName
+    val name = element?.text?.takeIf { it.isNotBlank() && '\n' !in it && '\r' !in it } ?: defaultName
     val path = editor.virtualFile.path
-    val linkName = createLinkName(name, caret.offset)
-    if (linkTextRegex.matches(linkName)) return createLink(linkName, path)
-    return createLink(createLinkName(defaultName, caret.offset), path)
+    return NoteReferences.format(name, path, caret.offset)
 }
-
-private fun createLinkName(name: String, offset: Int): String = "[$name:${offset}]"
-private fun createLink(name: String, path: String): String = "$name($path)"

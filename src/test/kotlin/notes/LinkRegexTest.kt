@@ -8,21 +8,21 @@ import kotlin.test.assertNull
 class LinkRegexTest {
     @Test
     fun `link text accepts common file name characters`() {
-        val match = assertNotNull(linkTextRegex.matchEntire("[my file-2_test.kt:42]"))
+        val reference = assertNotNull(NoteReferences.parse("[my file-2_test.kt:42](/tmp/note.kt)"))
 
-        assertEquals("my file-2_test.kt", match.groupValues[1])
-        assertEquals("42", match.groupValues[2])
+        assertEquals("my file-2_test.kt", reference.label)
+        assertEquals(42, reference.offset)
     }
 
     @Test
     fun `complete link preserves paths containing parentheses`() {
-        val match = assertNotNull(linkRegex.matchEntire("[Foo2.kt:7](/tmp/project (copy)/Foo2.kt)"))
+        val reference = assertNotNull(NoteReferences.parse("[Foo2.kt:7](/tmp/project (copy)/Foo2.kt)"))
 
-        assertEquals("/tmp/project (copy)/Foo2.kt", match.groupValues[3])
+        assertEquals("/tmp/project (copy)/Foo2.kt", reference.path)
     }
 
     @Test
     fun `link text rejects line breaks`() {
-        assertNull(linkTextRegex.matchEntire("[bad\nname:3]"))
+        assertNull(NoteReferences.parse("[bad\nname:3](/tmp/note.kt)"))
     }
 }

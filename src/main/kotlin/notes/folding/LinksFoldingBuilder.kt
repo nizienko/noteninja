@@ -7,7 +7,7 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import notes.file.NotesFileType
-import notes.linkRegex
+import notes.NoteReferences
 
 class LinksFoldingBuilder : FoldingBuilderEx() {
     companion object {
@@ -25,8 +25,9 @@ class LinksFoldingBuilder : FoldingBuilderEx() {
 
     private fun addDescriptors(node: ASTNode, descriptors: MutableList<FoldingDescriptor>) {
         val element = node.psi
-        if (linkRegex.matches(element.text ?: "")) {
-            val showNameLength = element.text.substringBefore(":").substringBefore(".").length
+        val reference = NoteReferences.parse(element.text ?: "")
+        if (reference != null) {
+            val showNameLength = reference.suffixStart
             descriptors.add(FoldingDescriptor(element, element.textRange.let { TextRange.create(it.startOffset + showNameLength, it.endOffset) }))
             return
         }

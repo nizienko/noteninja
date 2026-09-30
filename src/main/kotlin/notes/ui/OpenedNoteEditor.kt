@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import notes.NoteAction
+import notes.FilesState
 import notes.NotesService
 import notes.file.NotesFileType
 import notes.folding.LinksFoldingBuilder.Companion.LINK_PLACEHOLDER
@@ -61,7 +62,8 @@ class OpenedNoteEditor(private val project: Project) : BorderLayoutPanel(), Disp
                     val editorPanel = DisposableEditorPanel(editor)
                     currentEditorPanel = editorPanel
                     Disposer.register(this@OpenedNoteEditor, editorPanel)
-                    editorPanel.border = Borders.customLine(note.noteCard.color?.parseColor(), 0, 1, 0, 0)
+                    val color = service<FilesState>().find(note.noteCard)?.color
+                    editorPanel.border = Borders.customLine(color?.parseColor(), 0, 1, 0, 0)
 
                     addToCenter(editorPanel)
                     editor.contentComponent.requestFocusInWindow()

@@ -53,7 +53,7 @@
                 text="Save Selection to Notes" icon="AllIcons.Actions.Edit" description="Save selection to notes">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
-        // toolwindow actions
+        <!-- toolwindow actions -->
         <action id="notes.actions.file.BackAction"
                 class="notes.actions.file.BackAction"
                 text="Close Note" icon="AllIcons.General.ArrowLeft" description="Close note">

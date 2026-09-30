@@ -20,7 +20,7 @@ class SetColorAction: DumbAwareAction(AllIcons.Actions.Colors) {
         val point = component.locationOnScreen.let {
             Point(it.x + component.width / 2, it.y + component.height / 2)
         }
-        popupColor(listOf(note), service::noteChanged).show(RelativePoint(point))
+        popupColor(listOf(note)).show(RelativePoint(point))
     }
 
     override fun update(e: AnActionEvent) {
